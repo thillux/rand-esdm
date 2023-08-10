@@ -1,5 +1,7 @@
 # rand-esdm
 
+[https://img.shields.io/crates/v/rand-esdm.svg](https://crates.io/crates/rand-esdm)
+
 ## About
 A small library for interfacing Rust with the [ESDM](https://github.com/smuellerDD/esdm) user-space random server.
 
