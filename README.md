@@ -35,3 +35,9 @@ Draw random numbers as needed, e.g.:
 ```rust  
 let rnd: u64 = rng.gen();
 ```
+
+### Destroy library context when done
+
+```rust
+esdm_rng_fini();
+```
