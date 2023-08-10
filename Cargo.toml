@@ -4,15 +4,16 @@ version = "0.0.1"
 edition = "2021"
 authors = ["Markus Theil <theil.markus@gmail.com>"]
 license = "MIT"
+description = "provides interface to ESDM RNG server"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 rand_core = "0.6.4"
-rand = "0.8.5"
 
 [dev-dependencies]
 serial_test = "2.0.0"
+rand = "0.8.5"
 
 [build-dependencies]
 pkg-config = "0.3.27"

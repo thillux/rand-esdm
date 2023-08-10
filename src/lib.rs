@@ -99,6 +99,7 @@ impl RngCore for EsdmRngFullySeeded {
     }
 }
 
+// these tests assume a running esdm-server on the system!
 #[cfg(test)]
 mod tests {
     use super::*;
