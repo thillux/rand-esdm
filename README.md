@@ -1,5 +1,4 @@
 # rand-esdm
----
 
 ## About
 A small library for interfacing Rust with the [ESDM](https://github.com/smuellerDD/esdm) user-space random server.
