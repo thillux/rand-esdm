@@ -10,6 +10,9 @@ keywords = ["rand", "random", "esdm", "rng"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+privileged_tests = []
+
 [dependencies]
 rand_core = { version = "0.6.4", features = ["std"] }
 

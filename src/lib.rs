@@ -308,6 +308,7 @@ mod tests {
     // need to be root to run this test
     #[test]
     #[serial]
+    #[cfg(feature = "privileged_tests")]
     fn test_privileged_interface() {
         // also need unprivileged interface for random bytes
         esdm_rng_init_checked();
