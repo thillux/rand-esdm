@@ -49,6 +49,9 @@ extern "C" {
 
     #[must_use]
     fn esdm_rpcc_rnd_clear_pool() -> i32;
+
+    #[must_use]
+    pub fn esdm_rpcc_set_max_online_nodes(nodes: u32) -> i32;
 }
 
 /// ESDM RNG implementation, which only produces random numbers when fully seeded
