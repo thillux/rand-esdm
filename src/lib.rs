@@ -1,6 +1,7 @@
 use rand_core::{Error, RngCore};
 use std::ffi::{c_uchar, c_void, c_uint, c_char, CString};
 use std::ptr::null_mut;
+use std::sync::Once;
 
 /*
  * private ESDM RPC client function definitions
@@ -8,6 +9,12 @@ use std::ptr::null_mut;
 
 // how often to retry RPC calls before returning an error
 const ESDM_RETRY_COUNT: u32 = 5;
+
+static mut INIT_VAL_UNPRIV: i32 = 0;
+static INIT_UNPRIV: Once = Once::new();
+
+static mut INIT_VAL_PRIV: i32 = 0;
+static INIT_PRIV: Once = Once::new();
 
 extern "C" {
     /*
@@ -64,8 +71,12 @@ pub struct EsdmRngPredictionResistant {}
 /// Returns if the client connection to ESDM was initialized succesfully
 /// Only needed to call once globally before first usage of ESDM
 #[must_use] pub fn esdm_rng_init() -> bool {
-    let ret = unsafe { esdm_rpcc_init_unpriv_service(null_mut()) };
-    ret == 0
+    unsafe {
+        INIT_UNPRIV.call_once(|| {
+            INIT_VAL_UNPRIV = esdm_rpcc_init_unpriv_service(null_mut());
+        });
+        INIT_VAL_UNPRIV == 0
+    }
 }
 
 /// initializes the client connection to ESDM, asserts if something goes wrong
@@ -83,8 +94,12 @@ pub fn esdm_rng_fini() {
 /// initializes the client connection to ESDM, asserts if something goes wrong
 /// Only needed to call once globally before first usage of ESDM (privileged mode)
 #[must_use] pub fn esdm_rng_init_priv() -> bool {
-    let ret = unsafe { esdm_rpcc_init_priv_service(null_mut()) };
-    ret == 0
+    unsafe {
+        INIT_PRIV.call_once(|| {
+            INIT_VAL_PRIV = esdm_rpcc_init_priv_service(null_mut());
+        });
+        INIT_VAL_PRIV == 0
+    }
 }
 
 /// initializes the client connection to ESDM, asserts if something goes wrong
@@ -264,10 +279,8 @@ pub fn esdm_status_str() -> Result<String, Error> {
 mod tests {
     use super::*;
     use rand::Rng;
-    use serial_test::serial;
 
     #[test]
-    #[serial]
     fn test_prediction_resistant_mode() {
         esdm_rng_init_checked();
 
@@ -277,12 +290,9 @@ mod tests {
             let rnd: u64 = rng.gen();
             println!("Random Number: {rnd:?}");
         }
-
-        esdm_rng_fini();
     }
 
     #[test]
-    #[serial]
     fn test_fully_seeded_mode() {
         esdm_rng_init_checked();
 
@@ -291,12 +301,9 @@ mod tests {
             let rnd: u64 = rng.gen();
             println!("Random Number: {rnd:?}");
         }
-
-        esdm_rng_fini();
     }
 
     #[test]
-    #[serial]
     fn test_status() {
         esdm_rng_init_checked();
 
@@ -304,13 +311,10 @@ mod tests {
             let status = esdm_status_str().unwrap();
             println!("{status}");
         }
-
-        esdm_rng_fini();
     }
 
     // need to be root to run this test
     #[test]
-    #[serial]
     #[cfg(feature = "privileged_tests")]
     fn test_privileged_interface() {
         // also need unprivileged interface for random bytes
@@ -328,8 +332,5 @@ mod tests {
         esdm_clear_pool().unwrap();
         esdm_add_entropy(&buf, u32::try_from(buf.len() * 8).unwrap()).unwrap();
         assert_eq!(esdm_get_entropy_count().unwrap(), 32 * 8);
-
-        esdm_rng_fini_priv();
-        esdm_rng_fini();
     }
 }
