@@ -1,5 +1,6 @@
+use named_sem::NamedSemaphore;
 use rand_core::{Error, RngCore};
-use std::ffi::{c_uchar, c_void, c_uint, c_char, CString};
+use std::ffi::{c_char, c_uchar, c_uint, c_void, CString};
 use std::ptr::null_mut;
 use std::sync::Once;
 
@@ -15,6 +16,31 @@ static INIT_UNPRIV: Once = Once::new();
 
 static mut INIT_VAL_PRIV: i32 = 0;
 static INIT_PRIV: Once = Once::new();
+
+pub const ESDM_SHM_STATUS_VERSION: u32 = 1;
+pub const ESDM_SHM_STATUS_INFO_SIZE: usize = 1536;
+
+#[repr(C)]
+pub struct EsdmShmStatus {
+    /* Monotonic increasing version */
+    version: u32,
+
+    /* String with status information */
+    info: [char; ESDM_SHM_STATUS_INFO_SIZE],
+    infolen: usize,
+
+    /* Number of threads handling the unprivileged interface */
+    unpriv_threads: u32,
+
+    /* Is the ESDM operational? */
+    operational: bool,
+
+    /* Do we need new entropy? */
+    need_entropy: bool,
+
+    /* Wake up due to suspend/hibernate trigger */
+    suspend_trigger: bool,
+}
 
 extern "C" {
     /*
@@ -46,7 +72,11 @@ extern "C" {
     fn esdm_rpcc_fini_priv_service();
 
     #[must_use]
-    fn esdm_rpcc_rnd_add_entropy(entropy_buf: *const c_uchar, entropy_buf_len: usize, entropy_cnt: u32) -> i32;
+    fn esdm_rpcc_rnd_add_entropy(
+        entropy_buf: *const c_uchar,
+        entropy_buf_len: usize,
+        entropy_cnt: u32,
+    ) -> i32;
 
     #[must_use]
     fn esdm_rpcc_rnd_reseed_crng() -> i32;
@@ -70,7 +100,8 @@ pub struct EsdmRngPredictionResistant {}
 
 /// Returns if the client connection to ESDM was initialized succesfully
 /// Only needed to call once globally before first usage of ESDM
-#[must_use] pub fn esdm_rng_init() -> bool {
+#[must_use]
+pub fn esdm_rng_init() -> bool {
     unsafe {
         INIT_UNPRIV.call_once(|| {
             INIT_VAL_UNPRIV = esdm_rpcc_init_unpriv_service(null_mut());
@@ -93,7 +124,8 @@ pub fn esdm_rng_fini() {
 
 /// initializes the client connection to ESDM, asserts if something goes wrong
 /// Only needed to call once globally before first usage of ESDM (privileged mode)
-#[must_use] pub fn esdm_rng_init_priv() -> bool {
+#[must_use]
+pub fn esdm_rng_init_priv() -> bool {
     unsafe {
         INIT_PRIV.call_once(|| {
             INIT_VAL_PRIV = esdm_rpcc_init_priv_service(null_mut());
@@ -125,7 +157,7 @@ impl RngCore for EsdmRngPredictionResistant {
     fn next_u64(&mut self) -> u64 {
         let mut bytes: [u8; 8] = [0; 8];
         self.fill_bytes(&mut bytes);
-        
+
         u64::from_ne_bytes(bytes)
     }
 
@@ -153,7 +185,7 @@ impl RngCore for EsdmRngFullySeeded {
     fn next_u64(&mut self) -> u64 {
         let mut bytes: [u8; 8] = [0; 8];
         self.fill_bytes(&mut bytes);
-        
+
         u64::from_ne_bytes(bytes)
     }
 
@@ -180,9 +212,7 @@ impl RngCore for EsdmRngFullySeeded {
 /// returns true, if write of data was a success
 pub fn esdm_write_data(data: &[u8]) -> Result<(), Error> {
     for _ in 0..ESDM_RETRY_COUNT {
-        let ret = unsafe {
-            esdm_rpcc_write_data(data.as_ptr(), data.len())
-        };
+        let ret = unsafe { esdm_rpcc_write_data(data.as_ptr(), data.len()) };
         if ret == 0 {
             return Ok(());
         }
@@ -193,10 +223,8 @@ pub fn esdm_write_data(data: &[u8]) -> Result<(), Error> {
 
 pub fn esdm_get_entropy_count() -> Result<u32, Error> {
     for _ in 0..ESDM_RETRY_COUNT {
-        let mut ent_cnt_bytes: [u8; 4] = [0;4];
-        let ret = unsafe {
-            esdm_rpcc_rnd_get_ent_cnt(ent_cnt_bytes.as_mut_ptr().cast::<u32>())
-        };
+        let mut ent_cnt_bytes: [u8; 4] = [0; 4];
+        let ret = unsafe { esdm_rpcc_rnd_get_ent_cnt(ent_cnt_bytes.as_mut_ptr().cast::<u32>()) };
         if ret == 0 {
             return Ok(u32::from_ne_bytes(ent_cnt_bytes));
         }
@@ -219,9 +247,7 @@ pub fn esdm_add_entropy(entropy_bytes: &[u8], entropy_count: u32) -> Result<(), 
 
 pub fn esdm_add_to_entropy_count(entropy_increment: u32) -> Result<(), Error> {
     for _ in 0..ESDM_RETRY_COUNT {
-        let ret = unsafe {
-            esdm_rpcc_rnd_add_to_ent_cnt(entropy_increment)
-        };
+        let ret = unsafe { esdm_rpcc_rnd_add_to_ent_cnt(entropy_increment) };
         if ret == 0 {
             return Ok(());
         }
@@ -231,9 +257,7 @@ pub fn esdm_add_to_entropy_count(entropy_increment: u32) -> Result<(), Error> {
 
 pub fn esdm_reseed_crng() -> Result<(), Error> {
     for _ in 0..ESDM_RETRY_COUNT {
-        let ret = unsafe {
-            esdm_rpcc_rnd_reseed_crng()
-        };
+        let ret = unsafe { esdm_rpcc_rnd_reseed_crng() };
         if ret == 0 {
             return Ok(());
         }
@@ -243,9 +267,7 @@ pub fn esdm_reseed_crng() -> Result<(), Error> {
 
 pub fn esdm_clear_pool() -> Result<(), Error> {
     for _ in 0..ESDM_RETRY_COUNT {
-        let ret = unsafe {
-            esdm_rpcc_rnd_clear_pool()
-        };
+        let ret = unsafe { esdm_rpcc_rnd_clear_pool() };
         if ret == 0 {
             return Ok(());
         }
@@ -255,8 +277,7 @@ pub fn esdm_clear_pool() -> Result<(), Error> {
 
 pub fn esdm_status_str() -> Result<String, Error> {
     for _ in 0..ESDM_RETRY_COUNT {
-        let mut status_bytes = Vec::<u8>::new();
-        status_bytes.resize(8192, 0);
+        let mut status_bytes = vec![0; 8192];
         let ret = unsafe {
             esdm_rpcc_status(status_bytes.as_mut_ptr() as *mut c_char, status_bytes.len())
         };
@@ -272,6 +293,43 @@ pub fn esdm_status_str() -> Result<String, Error> {
         }
     }
     Err(Error::new("ESDM error clear pool"))
+}
+
+pub struct EsdmNotification {
+    sem: named_sem::NamedSemaphore,
+}
+
+impl Default for EsdmNotification {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl EsdmNotification {
+    pub fn new() -> Self {
+        EsdmNotification {
+            sem: NamedSemaphore::create("esdm-random-shm-status-semaphore", 0).unwrap(),
+        }
+    }
+
+    pub fn wait_for_entropy(&mut self) -> Result<u32, Error> {
+        if self.sem.wait().is_err() {
+            return Err(Error::new("semaphore wait error"));
+        };
+        let res = esdm_get_entropy_count();
+
+        match res {
+            Ok(cnt) => Ok(cnt),
+            _ => Err(Error::new("ESDM error get entropy count")),
+        }
+    }
+
+    pub fn ping_semaphore(&mut self) -> Result<(), Error> {
+        match self.sem.post() {
+            Ok(_) => Ok(()),
+            Err(_) => Err(Error::new("sem post failed")),
+        }
+    }
 }
 
 // these tests assume a running esdm-server on the system!

@@ -8,13 +8,13 @@ description = "provides interface to ESDM RNG server"
 repository = "https://github.com/thillux/rand-esdm"
 keywords = ["rand", "random", "esdm", "rng"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [features]
 privileged_tests = []
+botan = []
 
 [dependencies]
 rand_core = { version = "0.6.4", features = ["std"] }
+named-sem = { version = "0.1.0" }
 
 [dev-dependencies]
 rand = "0.8.5"
