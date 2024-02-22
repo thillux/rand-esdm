@@ -17,31 +17,6 @@ static INIT_UNPRIV: Once = Once::new();
 static mut INIT_VAL_PRIV: i32 = 0;
 static INIT_PRIV: Once = Once::new();
 
-pub const ESDM_SHM_STATUS_VERSION: u32 = 1;
-pub const ESDM_SHM_STATUS_INFO_SIZE: usize = 1536;
-
-#[repr(C)]
-pub struct EsdmShmStatus {
-    /* Monotonic increasing version */
-    version: u32,
-
-    /* String with status information */
-    info: [char; ESDM_SHM_STATUS_INFO_SIZE],
-    infolen: usize,
-
-    /* Number of threads handling the unprivileged interface */
-    unpriv_threads: u32,
-
-    /* Is the ESDM operational? */
-    operational: bool,
-
-    /* Do we need new entropy? */
-    need_entropy: bool,
-
-    /* Wake up due to suspend/hibernate trigger */
-    suspend_trigger: bool,
-}
-
 extern "C" {
     /*
      * unprivileged calls
