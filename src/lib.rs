@@ -287,7 +287,7 @@ impl EsdmNotification {
         }
     }
 
-    pub fn wait_for_entropy(&mut self) -> Result<u32, Error> {
+    pub fn wait_for_entropy_needed(&mut self) -> Result<u32, Error> {
         if self.sem.wait().is_err() {
             return Err(Error::new("semaphore wait error"));
         };
