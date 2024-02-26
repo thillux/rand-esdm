@@ -3,6 +3,7 @@ use rand_core::{Error, RngCore};
 use std::ffi::{c_char, c_uchar, c_uint, c_void, CString};
 use std::ptr::null_mut;
 use std::sync::Once;
+use std::time::Duration;
 
 /*
  * private ESDM RPC client function definitions
@@ -290,6 +291,18 @@ impl EsdmNotification {
     pub fn wait_for_entropy_needed(&mut self) -> Result<u32, Error> {
         if self.sem.wait().is_err() {
             return Err(Error::new("semaphore wait error"));
+        };
+        let res = esdm_get_entropy_count();
+
+        match res {
+            Ok(cnt) => Ok(cnt),
+            _ => Err(Error::new("ESDM error get entropy count")),
+        }
+    }
+
+    pub fn wait_for_entropy_needed_timeout(&mut self, dur: Duration) -> Result<u32, Error> {
+        if self.sem.timed_wait(dur).is_err() {
+            return Err(Error::new("semaphore timed wait error"));
         };
         let res = esdm_get_entropy_count();
 
