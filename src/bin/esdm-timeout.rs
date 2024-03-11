@@ -14,7 +14,7 @@ fn main() {
     esdm_add_entropy(&[0; 32], 256).unwrap();
     esdm_add_to_entropy_count(256).unwrap();
     loop {
-        let res = notifier.wait_for_entropy_needed_timeout(Duration::from_secs(10));
+        let res = notifier.wait_for_entropy_needed_timeout(Duration::from_secs(2));
         match res {
             Ok(entropy) => {
                 println!("Entropy count: {entropy}")

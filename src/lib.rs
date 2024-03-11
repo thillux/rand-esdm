@@ -1,6 +1,7 @@
-use named_sem::NamedSemaphore;
+use libc::ETIMEDOUT;
 use rand_core::{Error, RngCore};
 use std::ffi::{c_char, c_uchar, c_uint, c_void, CString};
+use std::mem::MaybeUninit;
 use std::ptr::null_mut;
 use std::sync::Once;
 use std::time::Duration;
@@ -18,6 +19,7 @@ static INIT_UNPRIV: Once = Once::new();
 static mut INIT_VAL_PRIV: i32 = 0;
 static INIT_PRIV: Once = Once::new();
 
+// esdm rpc client
 extern "C" {
     /*
      * unprivileged calls
@@ -65,6 +67,13 @@ extern "C" {
 
     #[must_use]
     pub fn esdm_rpcc_set_max_online_nodes(nodes: u32) -> i32;
+}
+
+// esdm entropy aux lib
+extern "C" {
+    pub fn esdm_aux_init_wait_for_need_entropy() -> i32;
+    pub fn esdm_aux_fini_wait_for_need_entropy() -> c_void;
+    pub fn esdm_aux_timedwait_for_need_entropy(ts: *const libc::timespec) -> i32;
 }
 
 /// ESDM RNG implementation, which only produces random numbers when fully seeded
@@ -271,9 +280,7 @@ pub fn esdm_status_str() -> Result<String, Error> {
     Err(Error::new("ESDM error clear pool"))
 }
 
-pub struct EsdmNotification {
-    sem: named_sem::NamedSemaphore,
-}
+pub struct EsdmNotification {}
 
 impl Default for EsdmNotification {
     fn default() -> Self {
@@ -281,41 +288,42 @@ impl Default for EsdmNotification {
     }
 }
 
+impl Drop for EsdmNotification {
+    fn drop(&mut self) {
+        self.drop()
+    }
+}
+
 impl EsdmNotification {
     pub fn new() -> Self {
-        EsdmNotification {
-            sem: NamedSemaphore::create("esdm-random-shm-status-semaphore", 0).unwrap(),
-        }
+        let ret = unsafe { esdm_aux_init_wait_for_need_entropy() };
+        assert!(ret == 0, "unable to initialize ESDM aux library");
+        EsdmNotification {}
     }
 
-    pub fn wait_for_entropy_needed(&mut self) -> Result<u32, Error> {
-        if self.sem.wait().is_err() {
-            return Err(Error::new("semaphore wait error"));
-        };
-        let res = esdm_get_entropy_count();
-
-        match res {
-            Ok(cnt) => Ok(cnt),
-            _ => Err(Error::new("ESDM error get entropy count")),
-        }
+    pub fn drop(&mut self) {
+        unsafe { esdm_aux_fini_wait_for_need_entropy() };
     }
 
     pub fn wait_for_entropy_needed_timeout(&mut self, dur: Duration) -> Result<u32, Error> {
-        if self.sem.timed_wait(dur).is_err() {
-            return Err(Error::new("semaphore timed wait error"));
-        };
+        let mut ts: libc::timespec = unsafe { MaybeUninit::zeroed().assume_init() };
+        if unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) } != 0 {
+            return Err(Error::new("get entropy clock failed"));
+        }
+        ts.tv_sec += dur.as_secs() as i64;
+        ts.tv_nsec += dur.subsec_nanos() as i64;
+        ts.tv_sec += ts.tv_nsec / 1_000_000_000;
+        ts.tv_nsec %= 1_000_000_000;
+        let ret = unsafe { esdm_aux_timedwait_for_need_entropy(&ts) };
+        if ret == ETIMEDOUT {
+            return Err(Error::new("get entropy timed out"));
+        }
+
         let res = esdm_get_entropy_count();
 
         match res {
             Ok(cnt) => Ok(cnt),
             _ => Err(Error::new("ESDM error get entropy count")),
-        }
-    }
-
-    pub fn ping_semaphore(&mut self) -> Result<(), Error> {
-        match self.sem.post() {
-            Ok(_) => Ok(()),
-            Err(_) => Err(Error::new("sem post failed")),
         }
     }
 }

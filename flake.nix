@@ -10,7 +10,20 @@
     let
       pkgs = nixpkgs.legacyPackages.x86_64-linux;
       craneLib = crane.lib.x86_64-linux;
-      buildInputs = with pkgs; [ esdm ];
+      buildInputs = with pkgs; [
+        (esdm.overrideAttrs (finalAttrs: previousAttrs: {
+        version = "1.0.3";
+        src = pkgs.fetchFromGitHub {
+          owner = "thillux";
+          repo = "esdm";
+          rev = "sem-aux-lib";
+          sha256 = "sha256-Y77SJ3OlxJn6J5FjqiFLs3QCV8wRaA1aDqOAKG/OYtM=";
+        };
+        mesonFlags = previousAttrs.mesonFlags ++ [
+          # "-Desdm-server-term-on-signal=false"
+        ];
+      }))
+      ];
       nativeBuildInputs = with pkgs; [ pkg-config ];
     in {
       packages.x86_64-linux = rec {

@@ -14,7 +14,7 @@ botan = []
 
 [dependencies]
 rand_core = { version = "0.6.4", features = ["std"] }
-named-sem = { version = "0.2.0" }
+libc = { version = "0.2.153" }
 
 [dev-dependencies]
 rand = "0.8.5"
