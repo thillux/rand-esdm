@@ -14,14 +14,11 @@
         (esdm.overrideAttrs (finalAttrs: previousAttrs: {
         version = "1.0.3";
         src = pkgs.fetchFromGitHub {
-          owner = "thillux";
+          owner = "smuellerDD";
           repo = "esdm";
-          rev = "sem-aux-lib";
-          sha256 = "sha256-Y77SJ3OlxJn6J5FjqiFLs3QCV8wRaA1aDqOAKG/OYtM=";
+          rev = "master";
+          sha256 = "sha256-Gpg3MfgiuNxUigETFnVX9PQ+5PXmpbEPVDl4VHvegZ8=";
         };
-        mesonFlags = previousAttrs.mesonFlags ++ [
-          # "-Desdm-server-term-on-signal=false"
-        ];
       }))
       ];
       nativeBuildInputs = with pkgs; [ pkg-config ];

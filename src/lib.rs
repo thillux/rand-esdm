@@ -3,7 +3,7 @@ use rand_core::{Error, RngCore};
 use std::ffi::{c_char, c_uchar, c_uint, c_void, CString};
 use std::mem::MaybeUninit;
 use std::ptr::null_mut;
-use std::sync::Once;
+use std::sync::Mutex;
 use std::time::Duration;
 
 /*
@@ -13,11 +13,8 @@ use std::time::Duration;
 // how often to retry RPC calls before returning an error
 const ESDM_RETRY_COUNT: u32 = 5;
 
-static mut INIT_VAL_UNPRIV: i32 = 0;
-static INIT_UNPRIV: Once = Once::new();
-
-static mut INIT_VAL_PRIV: i32 = 0;
-static INIT_PRIV: Once = Once::new();
+static LIB_MUTEX_UNPRIV: Mutex<u32> = Mutex::new(0);
+static LIB_MUTEX_PRIV: Mutex<u32> = Mutex::new(0);
 
 // esdm rpc client
 extern "C" {
@@ -76,22 +73,31 @@ extern "C" {
     pub fn esdm_aux_timedwait_for_need_entropy(ts: *const libc::timespec) -> i32;
 }
 
-/// ESDM RNG implementation, which only produces random numbers when fully seeded
-/// otherwise it times out and returns an error after a few internal tries
-pub struct EsdmRngFullySeeded {}
+pub enum EsdmRngType {
+    /// ESDM RNG implementation, which uses fresh entropy for every random output produced
+    PredictionResistant,
 
-/// ESDM RNG implementation, which uses fresh entropy for every random output produced
-pub struct EsdmRngPredictionResistant {}
+    /// ESDM RNG implementation, which only produces random numbers when fully seeded
+    /// otherwise it times out and returns an error after a few internal tries
+    FullySeeded,
+}
+
+pub struct EsdmRng {
+    rng_type: EsdmRngType,
+}
 
 /// Returns if the client connection to ESDM was initialized succesfully
 /// Only needed to call once globally before first usage of ESDM
 #[must_use]
 pub fn esdm_rng_init() -> bool {
-    unsafe {
-        INIT_UNPRIV.call_once(|| {
-            INIT_VAL_UNPRIV = esdm_rpcc_init_unpriv_service(null_mut());
-        });
-        INIT_VAL_UNPRIV == 0
+    let mut guard = LIB_MUTEX_UNPRIV.lock().unwrap();
+
+    if *guard == 0 {
+        *guard += 1;
+        unsafe { esdm_rpcc_init_unpriv_service(null_mut()) == 0 }
+    } else {
+        *guard += 1;
+        true
     }
 }
 
@@ -104,18 +110,27 @@ pub fn esdm_rng_init_checked() {
 
 /// Call in order to free ressources needed for ESDM client connection
 pub fn esdm_rng_fini() {
-    unsafe { esdm_rpcc_fini_unpriv_service() };
+    let mut guard = LIB_MUTEX_UNPRIV.lock().unwrap();
+
+    if *guard == 1 {
+        unsafe { esdm_rpcc_fini_unpriv_service() };
+    }
+
+    *guard -= 1;
 }
 
 /// initializes the client connection to ESDM, asserts if something goes wrong
 /// Only needed to call once globally before first usage of ESDM (privileged mode)
 #[must_use]
 pub fn esdm_rng_init_priv() -> bool {
-    unsafe {
-        INIT_PRIV.call_once(|| {
-            INIT_VAL_PRIV = esdm_rpcc_init_priv_service(null_mut());
-        });
-        INIT_VAL_PRIV == 0
+    let mut guard = LIB_MUTEX_PRIV.lock().unwrap();
+
+    if *guard == 0 {
+        *guard += 1;
+        unsafe { esdm_rpcc_init_priv_service(null_mut()) == 0 }
+    } else {
+        *guard += 1;
+        true
     }
 }
 
@@ -128,15 +143,35 @@ pub fn esdm_rng_init_priv_checked() {
 
 /// Call in order to free ressources needed for ESDM client connection (privileged mode)
 pub fn esdm_rng_fini_priv() {
-    unsafe { esdm_rpcc_fini_priv_service() };
+    let mut guard = LIB_MUTEX_PRIV.lock().unwrap();
+
+    if *guard == 1 {
+        unsafe { esdm_rpcc_fini_priv_service() };
+    }
+
+    *guard -= 1;
+}
+
+impl EsdmRng {
+    #[must_use]
+    pub fn new(rng_type: EsdmRngType) -> Self {
+        esdm_rng_init_checked();
+        EsdmRng { rng_type }
+    }
+}
+
+impl Drop for EsdmRng {
+    fn drop(&mut self) {
+        esdm_rng_fini();
+    }
 }
 
 /*
  * rand_core trait implementations
  */
-impl RngCore for EsdmRngPredictionResistant {
+impl RngCore for EsdmRng {
     fn next_u32(&mut self) -> u32 {
-        self.next_u64() as u32
+        u32::try_from(self.next_u64() & 0xFF_FF_FF_FF).unwrap()
     }
 
     fn next_u64(&mut self) -> u64 {
@@ -148,37 +183,15 @@ impl RngCore for EsdmRngPredictionResistant {
 
     fn fill_bytes(&mut self, dest: &mut [u8]) {
         for _ in 0..ESDM_RETRY_COUNT {
-            let ret_size = unsafe { esdm_rpcc_get_random_bytes_pr(dest.as_mut_ptr(), dest.len()) };
-            if ret_size == dest.len() as isize {
-                return;
-            }
-        }
-        panic!("cannot get random bytes from ESDM!");
-    }
-
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Error> {
-        self.fill_bytes(dest);
-        Ok(())
-    }
-}
-
-impl RngCore for EsdmRngFullySeeded {
-    fn next_u32(&mut self) -> u32 {
-        self.next_u64() as u32
-    }
-
-    fn next_u64(&mut self) -> u64 {
-        let mut bytes: [u8; 8] = [0; 8];
-        self.fill_bytes(&mut bytes);
-
-        u64::from_ne_bytes(bytes)
-    }
-
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        for _ in 0..ESDM_RETRY_COUNT {
-            let ret_size =
-                unsafe { esdm_rpcc_get_random_bytes_full(dest.as_mut_ptr(), dest.len()) };
-            if ret_size == dest.len() as isize {
+            let ret_size = match self.rng_type {
+                EsdmRngType::FullySeeded => unsafe {
+                    esdm_rpcc_get_random_bytes_full(dest.as_mut_ptr(), dest.len())
+                },
+                EsdmRngType::PredictionResistant => unsafe {
+                    esdm_rpcc_get_random_bytes_pr(dest.as_mut_ptr(), dest.len())
+                },
+            };
+            if ret_size == isize::try_from(dest.len()).unwrap() {
                 return;
             }
         }
@@ -208,10 +221,10 @@ pub fn esdm_write_data(data: &[u8]) -> Result<(), Error> {
 
 pub fn esdm_get_entropy_count() -> Result<u32, Error> {
     for _ in 0..ESDM_RETRY_COUNT {
-        let mut ent_cnt_bytes: [u8; 4] = [0; 4];
-        let ret = unsafe { esdm_rpcc_rnd_get_ent_cnt(ent_cnt_bytes.as_mut_ptr().cast::<u32>()) };
+        let ent_cnt: u32 = 0;
+        let ret = unsafe { esdm_rpcc_rnd_get_ent_cnt(std::ptr::addr_of!(ent_cnt).cast_mut()) };
         if ret == 0 {
-            return Ok(u32::from_ne_bytes(ent_cnt_bytes));
+            return Ok(ent_cnt);
         }
     }
     Err(Error::new("ESDM error get entropy"))
@@ -264,7 +277,10 @@ pub fn esdm_status_str() -> Result<String, Error> {
     for _ in 0..ESDM_RETRY_COUNT {
         let mut status_bytes = vec![0; 8192];
         let ret = unsafe {
-            esdm_rpcc_status(status_bytes.as_mut_ptr() as *mut c_char, status_bytes.len())
+            esdm_rpcc_status(
+                status_bytes.as_mut_ptr().cast::<c_char>(),
+                status_bytes.len(),
+            )
         };
         if ret == 0 {
             for i in 0..status_bytes.len() {
@@ -290,19 +306,16 @@ impl Default for EsdmNotification {
 
 impl Drop for EsdmNotification {
     fn drop(&mut self) {
-        self.drop()
+        unsafe { esdm_aux_fini_wait_for_need_entropy() };
     }
 }
 
 impl EsdmNotification {
+    #[must_use]
     pub fn new() -> Self {
         let ret = unsafe { esdm_aux_init_wait_for_need_entropy() };
         assert!(ret == 0, "unable to initialize ESDM aux library");
         EsdmNotification {}
-    }
-
-    pub fn drop(&mut self) {
-        unsafe { esdm_aux_fini_wait_for_need_entropy() };
     }
 
     pub fn wait_for_entropy_needed_timeout(&mut self, dur: Duration) -> Result<u32, Error> {
@@ -310,8 +323,8 @@ impl EsdmNotification {
         if unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) } != 0 {
             return Err(Error::new("get entropy clock failed"));
         }
-        ts.tv_sec += dur.as_secs() as i64;
-        ts.tv_nsec += dur.subsec_nanos() as i64;
+        ts.tv_sec += i64::try_from(dur.as_secs()).unwrap();
+        ts.tv_nsec += i64::from(dur.subsec_nanos());
         ts.tv_sec += ts.tv_nsec / 1_000_000_000;
         ts.tv_nsec %= 1_000_000_000;
         let ret = unsafe { esdm_aux_timedwait_for_need_entropy(&ts) };
@@ -319,9 +332,7 @@ impl EsdmNotification {
             return Err(Error::new("get entropy timed out"));
         }
 
-        let res = esdm_get_entropy_count();
-
-        match res {
+        match esdm_get_entropy_count() {
             Ok(cnt) => Ok(cnt),
             _ => Err(Error::new("ESDM error get entropy count")),
         }
@@ -336,24 +347,21 @@ mod tests {
 
     #[test]
     fn test_prediction_resistant_mode() {
-        esdm_rng_init_checked();
-
-        let mut rng = EsdmRngPredictionResistant {};
+        let mut rng = EsdmRng::new(EsdmRngType::PredictionResistant);
 
         for _ in 1..1000 {
-            let rnd: u64 = rng.gen();
-            println!("Random Number: {rnd:?}");
+            let random_num: u64 = rng.gen();
+            println!("Random Number: {random_num:?}");
         }
     }
 
     #[test]
     fn test_fully_seeded_mode() {
-        esdm_rng_init_checked();
+        let mut rng = EsdmRng::new(EsdmRngType::FullySeeded);
 
-        let mut rng = EsdmRngFullySeeded {};
         for _ in 1..1000 {
-            let rnd: u64 = rng.gen();
-            println!("Random Number: {rnd:?}");
+            let random_num: u64 = rng.gen();
+            println!("Random Number: {random_num:?}");
         }
     }
 
@@ -365,6 +373,8 @@ mod tests {
             let status = esdm_status_str().unwrap();
             println!("{status}");
         }
+
+        esdm_rng_fini();
     }
 
     // need to be root to run this test
@@ -380,7 +390,8 @@ mod tests {
         esdm_add_to_entropy_count(64 * 8).unwrap();
         esdm_reseed_crng().unwrap();
 
-        let mut rng = EsdmRngPredictionResistant {};
+        let mut rng = EsdmRng::new(EsdmRngType::PredictionResistant);
+
         // don't do this in production: circular seeding
         let buf: [u8; 32] = rng.gen();
         esdm_clear_pool().unwrap();

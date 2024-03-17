@@ -7,17 +7,32 @@ license = "MIT"
 description = "provides interface to ESDM RNG server"
 repository = "https://github.com/thillux/rand-esdm"
 keywords = ["rand", "random", "esdm", "rng"]
+categories = ["cryptography"]
 
 [features]
+default = []
 privileged_tests = []
-botan = []
+build-binary = ["dep:clap"]
 
 [dependencies]
 rand_core = { version = "0.6.4", features = ["std"] }
 libc = { version = "0.2.153" }
+clap = { version = "4.5.3", features = ["derive"], optional = true }
 
 [dev-dependencies]
 rand = "0.8.5"
 
 [build-dependencies]
 pkg-config = "0.3.27"
+
+[[bin]]
+name = "esdm-tool"
+required-features = ["build-binary"]
+
+[lints.clippy]
+all = { level = "deny", priority = 0 }
+pedantic = { level = "deny", priority = 0 }
+cargo = { level = "deny", priority = 0 }
+missing_safety_doc = { level = "allow", priority = 1 }
+missing_errors_doc = { level = "allow", priority = 1 }
+missing_panics_doc = { level = "allow", priority = 1 }
