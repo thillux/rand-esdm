@@ -1,6 +1,6 @@
 [package]
 name = "rand-esdm"
-version = "0.0.3"
+version = "0.0.4"
 edition = "2021"
 authors = ["Markus Theil <theil.markus@gmail.com>"]
 license = "MIT"
@@ -23,7 +23,7 @@ clap = { version = "4.5.3", features = ["derive"], optional = true }
 rand = "0.8.5"
 
 [build-dependencies]
-pkg-config = "0.3.27"
+pkg-config = "0.3.30"
 
 [[bin]]
 name = "esdm-tool"

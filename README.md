@@ -15,18 +15,12 @@ It currently provides the minimal amount of bindings necessary to use ESDM toget
 rand-esdm = "0.0.3"
 ```
 
-### Init library once in your usage context
-
-```rust
-esdm_rng_init_checked();
-```
-
 ### Generate Random Numbers with rand crate
 
 Choose type of rng:
 
-- Only usable when fully seeded: ```let mut rng = EsdmRngFullySeeded {};```
-- Only usable with fresh entropy: ```let mut rng = EsdmRngPredictionResistant {};```
+- Only usable when fully seeded: ```let mut rng = EsdmRng::new(EsdmRngType::FullySeeded);```
+- Only usable with fresh entropy: ```let mut rng = EsdmRng::new(EsdmRngType::PredictionResistant);```
 
 Include Rng utility trait from rand:
 ```rust
@@ -36,10 +30,4 @@ use rand::Rng;
 Draw random numbers as needed, e.g.:
 ```rust  
 let rnd: u64 = rng.gen();
-```
-
-### Destroy library context when done
-
-```rust
-esdm_rng_fini();
 ```
