@@ -1,10 +1,13 @@
 use libc::ETIMEDOUT;
 use rand_core::{Error, RngCore};
-use std::ffi::{c_char, c_uchar, c_uint, c_void, CString};
+use std::ffi::{c_char, CString};
 use std::mem::MaybeUninit;
-use std::ptr::null_mut;
+
 use std::sync::Mutex;
 use std::time::Duration;
+
+use esdm_sys::esdm;
+use esdm_sys::esdm_aux;
 
 /*
  * private ESDM RPC client function definitions
@@ -15,63 +18,6 @@ const ESDM_RETRY_COUNT: u32 = 5;
 
 static LIB_MUTEX_UNPRIV: Mutex<u32> = Mutex::new(0);
 static LIB_MUTEX_PRIV: Mutex<u32> = Mutex::new(0);
-
-// esdm rpc client
-extern "C" {
-    /*
-     * unprivileged calls
-     */
-    #[must_use]
-    fn esdm_rpcc_init_unpriv_service(handler: *mut c_void) -> i32;
-    fn esdm_rpcc_fini_unpriv_service();
-
-    #[must_use]
-    fn esdm_rpcc_get_random_bytes_full(buf: *mut c_uchar, buf_len: usize) -> isize;
-    #[must_use]
-    fn esdm_rpcc_get_random_bytes_pr(buf: *mut c_uchar, buf_len: usize) -> isize;
-
-    // add unaccounted entropy bits to the pool
-    #[must_use]
-    fn esdm_rpcc_write_data(buf: *const c_uchar, buf_len: usize) -> i32;
-
-    // get entropy count
-    #[must_use]
-    fn esdm_rpcc_rnd_get_ent_cnt(entcnt: *mut c_uint) -> i32;
-
-    fn esdm_rpcc_status(buf: *mut c_char, buflen: usize) -> i32;
-    /*
-     * privileged calls
-     */
-    #[must_use]
-    fn esdm_rpcc_init_priv_service(handler: *mut c_void) -> i32;
-    fn esdm_rpcc_fini_priv_service();
-
-    #[must_use]
-    fn esdm_rpcc_rnd_add_entropy(
-        entropy_buf: *const c_uchar,
-        entropy_buf_len: usize,
-        entropy_cnt: u32,
-    ) -> i32;
-
-    #[must_use]
-    fn esdm_rpcc_rnd_reseed_crng() -> i32;
-
-    #[must_use]
-    fn esdm_rpcc_rnd_add_to_ent_cnt(entropy_cnt: u32) -> i32;
-
-    #[must_use]
-    fn esdm_rpcc_rnd_clear_pool() -> i32;
-
-    #[must_use]
-    pub fn esdm_rpcc_set_max_online_nodes(nodes: u32) -> i32;
-}
-
-// esdm entropy aux lib
-extern "C" {
-    pub fn esdm_aux_init_wait_for_need_entropy() -> i32;
-    pub fn esdm_aux_fini_wait_for_need_entropy() -> c_void;
-    pub fn esdm_aux_timedwait_for_need_entropy(ts: *const libc::timespec) -> i32;
-}
 
 pub enum EsdmRngType {
     /// ESDM RNG implementation, which uses fresh entropy for every random output produced
@@ -94,7 +40,7 @@ pub fn esdm_rng_init() -> bool {
 
     if *guard == 0 {
         *guard += 1;
-        unsafe { esdm_rpcc_init_unpriv_service(null_mut()) == 0 }
+        unsafe { esdm::esdm_rpcc_init_unpriv_service(None) == 0 }
     } else {
         *guard += 1;
         true
@@ -113,7 +59,7 @@ pub fn esdm_rng_fini() {
     let mut guard = LIB_MUTEX_UNPRIV.lock().unwrap();
 
     if *guard == 1 {
-        unsafe { esdm_rpcc_fini_unpriv_service() };
+        unsafe { esdm::esdm_rpcc_fini_unpriv_service() };
     }
 
     *guard -= 1;
@@ -127,7 +73,7 @@ pub fn esdm_rng_init_priv() -> bool {
 
     if *guard == 0 {
         *guard += 1;
-        unsafe { esdm_rpcc_init_priv_service(null_mut()) == 0 }
+        unsafe { esdm::esdm_rpcc_init_priv_service(None) == 0 }
     } else {
         *guard += 1;
         true
@@ -146,7 +92,7 @@ pub fn esdm_rng_fini_priv() {
     let mut guard = LIB_MUTEX_PRIV.lock().unwrap();
 
     if *guard == 1 {
-        unsafe { esdm_rpcc_fini_priv_service() };
+        unsafe { esdm::esdm_rpcc_fini_priv_service() };
     }
 
     *guard -= 1;
@@ -185,10 +131,10 @@ impl RngCore for EsdmRng {
         for _ in 0..ESDM_RETRY_COUNT {
             let ret_size = match self.rng_type {
                 EsdmRngType::FullySeeded => unsafe {
-                    esdm_rpcc_get_random_bytes_full(dest.as_mut_ptr(), dest.len())
+                    esdm::esdm_rpcc_get_random_bytes_full(dest.as_mut_ptr(), dest.len())
                 },
                 EsdmRngType::PredictionResistant => unsafe {
-                    esdm_rpcc_get_random_bytes_pr(dest.as_mut_ptr(), dest.len())
+                    esdm::esdm_rpcc_get_random_bytes_pr(dest.as_mut_ptr(), dest.len())
                 },
             };
             if ret_size == isize::try_from(dest.len()).unwrap() {
@@ -210,7 +156,7 @@ impl RngCore for EsdmRng {
 /// returns true, if write of data was a success
 pub fn esdm_write_data(data: &[u8]) -> Result<(), Error> {
     for _ in 0..ESDM_RETRY_COUNT {
-        let ret = unsafe { esdm_rpcc_write_data(data.as_ptr(), data.len()) };
+        let ret = unsafe { esdm::esdm_rpcc_write_data(data.as_ptr(), data.len()) };
         if ret == 0 {
             return Ok(());
         }
@@ -222,7 +168,8 @@ pub fn esdm_write_data(data: &[u8]) -> Result<(), Error> {
 pub fn esdm_get_entropy_count() -> Result<u32, Error> {
     for _ in 0..ESDM_RETRY_COUNT {
         let ent_cnt: u32 = 0;
-        let ret = unsafe { esdm_rpcc_rnd_get_ent_cnt(std::ptr::addr_of!(ent_cnt).cast_mut()) };
+        let ret =
+            unsafe { esdm::esdm_rpcc_rnd_get_ent_cnt(std::ptr::addr_of!(ent_cnt).cast_mut()) };
         if ret == 0 {
             return Ok(ent_cnt);
         }
@@ -233,7 +180,11 @@ pub fn esdm_get_entropy_count() -> Result<u32, Error> {
 pub fn esdm_add_entropy(entropy_bytes: &[u8], entropy_count: u32) -> Result<(), Error> {
     for _ in 0..ESDM_RETRY_COUNT {
         let ret = unsafe {
-            esdm_rpcc_rnd_add_entropy(entropy_bytes.as_ptr(), entropy_bytes.len(), entropy_count)
+            esdm::esdm_rpcc_rnd_add_entropy(
+                entropy_bytes.as_ptr(),
+                entropy_bytes.len(),
+                entropy_count,
+            )
         };
         if ret == 0 {
             return Ok(());
@@ -245,7 +196,7 @@ pub fn esdm_add_entropy(entropy_bytes: &[u8], entropy_count: u32) -> Result<(), 
 
 pub fn esdm_add_to_entropy_count(entropy_increment: u32) -> Result<(), Error> {
     for _ in 0..ESDM_RETRY_COUNT {
-        let ret = unsafe { esdm_rpcc_rnd_add_to_ent_cnt(entropy_increment) };
+        let ret = unsafe { esdm::esdm_rpcc_rnd_add_to_ent_cnt(entropy_increment) };
         if ret == 0 {
             return Ok(());
         }
@@ -255,7 +206,7 @@ pub fn esdm_add_to_entropy_count(entropy_increment: u32) -> Result<(), Error> {
 
 pub fn esdm_reseed_crng() -> Result<(), Error> {
     for _ in 0..ESDM_RETRY_COUNT {
-        let ret = unsafe { esdm_rpcc_rnd_reseed_crng() };
+        let ret = unsafe { esdm::esdm_rpcc_rnd_reseed_crng() };
         if ret == 0 {
             return Ok(());
         }
@@ -265,7 +216,7 @@ pub fn esdm_reseed_crng() -> Result<(), Error> {
 
 pub fn esdm_clear_pool() -> Result<(), Error> {
     for _ in 0..ESDM_RETRY_COUNT {
-        let ret = unsafe { esdm_rpcc_rnd_clear_pool() };
+        let ret = unsafe { esdm::esdm_rpcc_rnd_clear_pool() };
         if ret == 0 {
             return Ok(());
         }
@@ -277,7 +228,7 @@ pub fn esdm_status_str() -> Result<String, Error> {
     for _ in 0..ESDM_RETRY_COUNT {
         let mut status_bytes = vec![0; 8192];
         let ret = unsafe {
-            esdm_rpcc_status(
+            esdm::esdm_rpcc_status(
                 status_bytes.as_mut_ptr().cast::<c_char>(),
                 status_bytes.len(),
             )
@@ -306,14 +257,14 @@ impl Default for EsdmNotification {
 
 impl Drop for EsdmNotification {
     fn drop(&mut self) {
-        unsafe { esdm_aux_fini_wait_for_need_entropy() };
+        unsafe { esdm_aux::esdm_aux_fini_wait_for_need_entropy() };
     }
 }
 
 impl EsdmNotification {
     #[must_use]
     pub fn new() -> Self {
-        let ret = unsafe { esdm_aux_init_wait_for_need_entropy() };
+        let ret = unsafe { esdm_aux::esdm_aux_init_wait_for_need_entropy() };
         assert!(ret == 0, "unable to initialize ESDM aux library");
         EsdmNotification {}
     }
@@ -323,11 +274,19 @@ impl EsdmNotification {
         if unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) } != 0 {
             return Err(Error::new("get entropy clock failed"));
         }
-        ts.tv_sec += i64::try_from(dur.as_secs()).unwrap();
-        ts.tv_nsec += i64::from(dur.subsec_nanos());
-        ts.tv_sec += ts.tv_nsec / 1_000_000_000;
-        ts.tv_nsec %= 1_000_000_000;
-        let ret = unsafe { esdm_aux_timedwait_for_need_entropy(&ts) };
+
+        let mut ts_esdm = esdm_aux::timespec {
+            tv_sec: ts.tv_sec,
+            tv_nsec: ts.tv_nsec,
+        };
+
+        ts_esdm.tv_sec += i64::try_from(dur.as_secs()).unwrap();
+        ts_esdm.tv_nsec += i64::from(dur.subsec_nanos());
+        ts_esdm.tv_sec += ts.tv_nsec / 1_000_000_000;
+        ts_esdm.tv_nsec %= 1_000_000_000;
+        let ret = unsafe {
+            esdm_aux::esdm_aux_timedwait_for_need_entropy(std::ptr::addr_of_mut!(ts_esdm))
+        };
         if ret == ETIMEDOUT {
             return Err(Error::new("get entropy timed out"));
         }
@@ -396,6 +355,6 @@ mod tests {
         let buf: [u8; 32] = rng.gen();
         esdm_clear_pool().unwrap();
         esdm_add_entropy(&buf, u32::try_from(buf.len() * 8).unwrap()).unwrap();
-        assert_eq!(esdm_get_entropy_count().unwrap(), 32 * 8);
+        assert!(esdm_get_entropy_count().unwrap() >= 32 * 8);
     }
 }

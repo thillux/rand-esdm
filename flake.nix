@@ -21,7 +21,7 @@
         };
       }))
       ];
-      nativeBuildInputs = with pkgs; [ pkg-config ];
+      nativeBuildInputs = with pkgs; [ pkg-config rustPlatform.bindgenHook protobufc ];
     in {
       packages.x86_64-linux = rec {
         default = let

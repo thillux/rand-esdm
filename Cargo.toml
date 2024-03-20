@@ -18,16 +18,14 @@ build-binary = ["dep:clap"]
 rand_core = { version = "0.6.4", features = ["std"] }
 libc = { version = "0.2.153" }
 clap = { version = "4.5.3", features = ["derive"], optional = true }
+esdm-sys = { path = "./esdm-sys" }
 
 [dev-dependencies]
 rand = "0.8.5"
 
-[build-dependencies]
-pkg-config = "0.3.30"
-
-[[bin]]
-name = "esdm-tool"
-required-features = ["build-binary"]
+#[[bin]]
+#name = "esdm-tool"
+#required-features = ["build-binary"]
 
 [lints.clippy]
 all = { level = "deny", priority = 0 }
