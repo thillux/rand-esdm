@@ -16,8 +16,7 @@ default = []
 clap = { version = "4.5.3", features = ["derive"] }
 hex = "0.4"
 rand = "0.8.5"
-#rand-esdm = { version = "0.0.5" }
-rand-esdm = { path = "../esdm" }
+rand-esdm = { version = "0.0.6" }
 
 [lints.clippy]
 all = { level = "deny", priority = 0 }
