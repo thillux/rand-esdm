@@ -12,30 +12,21 @@
       craneLib = crane.lib.x86_64-linux;
       buildInputs = with pkgs; [
         (esdm.overrideAttrs (finalAttrs: previousAttrs: {
-        version = "1.0.3";
-        src = pkgs.fetchFromGitHub {
-          owner = "smuellerDD";
-          repo = "esdm";
-          rev = "master";
-          sha256 = "sha256-Gpg3MfgiuNxUigETFnVX9PQ+5PXmpbEPVDl4VHvegZ8=";
-        };
-      }))
+          version = "1.0.3";
+          src = pkgs.fetchFromGitHub {
+            owner = "smuellerDD";
+            repo = "esdm";
+            rev = "master";
+            sha256 = "sha256-Gpg3MfgiuNxUigETFnVX9PQ+5PXmpbEPVDl4VHvegZ8=";
+          };
+        }))
       ];
       nativeBuildInputs = with pkgs; [ pkg-config rustPlatform.bindgenHook protobufc ];
-    in {
+    in
+    {
       packages.x86_64-linux = rec {
-        default = let
-          cFilter = path: _type: builtins.match ".*c$" path != null;
-          cOrCargo = path: type:
-            (cFilter path type) || (craneLib.filterCargoSources path type);
-        in craneLib.buildPackage {
-          src = pkgs.lib.cleanSourceWith {
-            src = craneLib.path ./.;
-            filter = cOrCargo;
-          };
-          doCheck = true;
-          inherit buildInputs;
-          inherit nativeBuildInputs;
+        default = pkgs.callPackage ./esdm/build.nix {
+          inherit buildInputs nativeBuildInputs craneLib;
         };
 
         run = pkgs.writeShellScriptBin "run" ''
