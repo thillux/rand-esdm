@@ -1,5 +1,6 @@
 [package]
 name = "rand-esdm"
+version = "0.0.6"
 edition = "2021"
 authors = ["Markus Theil <theil.markus@gmail.com>"]
 license = "MIT"
@@ -16,6 +17,7 @@ privileged_tests = []
 rand_core = { version = "0.6.4", features = ["std"] }
 libc = { version = "0.2.153" }
 esdm-sys = { version = "0.0.4" }
+regex = "1.10.3"
 
 [dev-dependencies]
 rand = "0.8.5"

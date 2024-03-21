@@ -1,5 +1,6 @@
 use libc::ETIMEDOUT;
 use rand_core::{Error, RngCore};
+use regex::Regex;
 use std::ffi::{c_char, CString};
 use std::mem::MaybeUninit;
 
@@ -245,6 +246,49 @@ pub fn esdm_status_str() -> Result<String, Error> {
         }
     }
     Err(Error::new("ESDM error clear pool"))
+}
+
+pub fn esdm_is_fully_seeded() -> Option<bool> {
+    if !esdm_rng_init() {
+        return None;
+    }
+
+    if let Ok(status) = esdm_status_str() {
+        if status.contains("ESDM fully seeded: true") {
+            esdm_rng_fini();
+            return Some(true);
+        }
+        if status.contains("ESDM fully seeded: false") {
+            esdm_rng_fini();
+            return Some(false);
+        }
+    }
+
+    esdm_rng_fini();
+
+    None
+}
+
+pub fn esdm_get_entropy_level() -> Option<u32> {
+    if !esdm_rng_init() {
+        return None;
+    }
+
+    if let Ok(status) = esdm_status_str() {
+        let entropy_level_regex = Regex::new(r"^ESDM entropy level: (?<level>\d+)$").unwrap();
+        for line in status.split("\n") {
+            if let Some(caps) = entropy_level_regex.captures(line) {
+                let level_str = caps.get(1).unwrap().as_str();
+                let level = level_str.parse::<u32>().unwrap();
+                esdm_rng_fini();
+                return Some(level);
+            }
+        }
+    }
+
+    esdm_rng_fini();
+
+    None
 }
 
 pub struct EsdmNotification {}

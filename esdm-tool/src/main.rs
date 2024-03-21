@@ -2,7 +2,7 @@ use std::{io::Write, process::ExitCode, time::Duration};
 
 use clap::{arg, Args, Parser, Subcommand};
 use rand::RngCore;
-use rand_esdm::{esdm_rng_fini, esdm_rng_init, esdm_rng_init_checked, esdm_status_str, EsdmRng};
+use rand_esdm::{esdm_get_entropy_count, esdm_get_entropy_level, esdm_is_fully_seeded, esdm_rng_fini, esdm_rng_init, esdm_rng_init_checked, esdm_status_str, EsdmRng};
 
 #[derive(Debug, Args)]
 struct GetRandomArg {
@@ -25,6 +25,8 @@ struct WaitUntilSeededArg {
 #[derive(Debug, Subcommand)]
 enum ToolCommand {
     Status,
+    EntropyLevel,
+    EntropyCount,
     WaitUntilSeeded(WaitUntilSeededArg),
     GetRandom(GetRandomArg),
 }
@@ -46,38 +48,25 @@ fn handle_status() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn is_fully_seeded() -> bool {
-    if !esdm_rng_init() {
-        println!("Cannot connect to ESDM, retry in 1s.");
-        return false;
-    }
-
-    let mut fully_seeded = true;
-
-    if let Ok(status) = esdm_status_str() {
-        if status.contains("ESDM fully seeded: true") {
-            println!("ESDM is fully seeded!");
-        } else {
-            println!("ESDM is still not fully seeded!");
-            fully_seeded = false;
-        }
-    } else {
-        println!("Cannot connect to ESDM, retry in 1s.");
-        fully_seeded = false;
-    }
-
-    esdm_rng_fini();
-
-    fully_seeded
-}
-
-fn wait_until_seeded(arg: WaitUntilSeededArg) -> ExitCode {
+fn wait_until_seeded(arg: &WaitUntilSeededArg) -> ExitCode {
     let mut try_counter = arg.tries;
 
     while try_counter > 0 {
-        if is_fully_seeded() {
-            return ExitCode::SUCCESS;
+        if !esdm_rng_init() {
+            println!("ESDM is still not fully seeded! Retry in 1s.");
+            try_counter -= 1;
+            std::thread::sleep(Duration::from_secs(1));
+            continue;    
         }
+        if let Some(status) = esdm_is_fully_seeded() {
+            if status {
+                esdm_rng_fini();
+                println!("ESDM is fully seeded!");
+                return ExitCode::SUCCESS;
+            }
+        }
+        esdm_rng_fini();
+        println!("ESDM is still not fully seeded! Retry in 1s.");
         try_counter -= 1;
         std::thread::sleep(Duration::from_secs(1));
     }
@@ -86,7 +75,7 @@ fn wait_until_seeded(arg: WaitUntilSeededArg) -> ExitCode {
     ExitCode::FAILURE
 }
 
-fn get_random(arg: GetRandomArg) -> ExitCode {
+fn get_random(arg: &GetRandomArg) -> ExitCode {
     let mut buf = vec![0u8; arg.size];
     let mut rng = if arg.pr {
         EsdmRng::new(rand_esdm::EsdmRngType::PredictionResistant)
@@ -101,7 +90,25 @@ fn get_random(arg: GetRandomArg) -> ExitCode {
         std::io::stdout().write_all(&buf).unwrap();
     }
 
-    return ExitCode::SUCCESS;
+    ExitCode::SUCCESS
+}
+
+fn get_entropy_level() -> ExitCode {
+    if let Some(entropy_level) = esdm_get_entropy_level() {
+        println!("Entropy level: {entropy_level}");
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
+fn get_entropy_count() -> ExitCode {
+    esdm_rng_init_checked();
+    let cnt = esdm_get_entropy_count().unwrap();
+    println!("Entropy count: {cnt}");
+    esdm_rng_fini();
+
+    ExitCode::SUCCESS
 }
 
 fn main() -> ExitCode {
@@ -109,7 +116,9 @@ fn main() -> ExitCode {
 
     match args.command {
         ToolCommand::Status => handle_status(),
-        ToolCommand::WaitUntilSeeded(arg) => wait_until_seeded(arg),
-        ToolCommand::GetRandom(arg) => get_random(arg),
+        ToolCommand::WaitUntilSeeded(arg) => wait_until_seeded(&arg),
+        ToolCommand::GetRandom(arg) => get_random(&arg),
+        ToolCommand::EntropyLevel => get_entropy_level(),
+        ToolCommand::EntropyCount => get_entropy_count(),
     }
 }
