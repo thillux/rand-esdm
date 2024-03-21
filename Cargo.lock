@@ -185,6 +185,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "esdm-sys"
+version = "0.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b81ced402a3a18a2009e9a8c7554193decc8cd3343987146eecc96101a5e47de"
+dependencies = [
+ "bindgen",
+ "pkg-config",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -349,7 +359,7 @@ name = "rand-esdm"
 version = "0.0.4"
 dependencies = [
  "clap",
- "esdm-sys",
+ "esdm-sys 0.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc",
  "rand",
  "rand_core",
