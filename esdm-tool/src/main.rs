@@ -9,17 +9,23 @@ struct GetRandomArg {
     #[arg(required = true)]
     size: usize,
 
-    #[arg(short='H', long, action)]
+    #[arg(short = 'H', long, action)]
     hex: bool,
 
-    #[arg(short='P', long, action)]
+    #[arg(short = 'P', long, action)]
     pr: bool,
+}
+
+#[derive(Debug, Args)]
+struct WaitUntilSeededArg {
+    #[arg(required = false, default_value = "100")]
+    tries: usize,
 }
 
 #[derive(Debug, Subcommand)]
 enum ToolCommand {
     Status,
-    WaitUntilSeeded,
+    WaitUntilSeeded(WaitUntilSeededArg),
     GetRandom(GetRandomArg),
 }
 
@@ -42,6 +48,7 @@ fn handle_status() -> ExitCode {
 
 fn is_fully_seeded() -> bool {
     if !esdm_rng_init() {
+        println!("Cannot connect to ESDM, retry in 1s.");
         return false;
     }
 
@@ -55,6 +62,7 @@ fn is_fully_seeded() -> bool {
             fully_seeded = false;
         }
     } else {
+        println!("Cannot connect to ESDM, retry in 1s.");
         fully_seeded = false;
     }
 
@@ -63,8 +71,8 @@ fn is_fully_seeded() -> bool {
     fully_seeded
 }
 
-fn wait_until_seeded() -> ExitCode {
-    let mut try_counter = 100;
+fn wait_until_seeded(arg: WaitUntilSeededArg) -> ExitCode {
+    let mut try_counter = arg.tries;
 
     while try_counter > 0 {
         if is_fully_seeded() {
@@ -74,6 +82,7 @@ fn wait_until_seeded() -> ExitCode {
         std::thread::sleep(Duration::from_secs(1));
     }
 
+    println!("ESDM can't be reached or is still not fully seeded, exiting!");
     ExitCode::FAILURE
 }
 
@@ -100,7 +109,7 @@ fn main() -> ExitCode {
 
     match args.command {
         ToolCommand::Status => handle_status(),
-        ToolCommand::WaitUntilSeeded => wait_until_seeded(),
+        ToolCommand::WaitUntilSeeded(arg) => wait_until_seeded(arg),
         ToolCommand::GetRandom(arg) => get_random(arg),
     }
 }
