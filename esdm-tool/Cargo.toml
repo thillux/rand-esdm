@@ -1,24 +1,22 @@
 [package]
-name = "rand-esdm"
-edition = "2021"
+name = "esdm-tool"
+version = "0.0.5"
 authors = ["Markus Theil <theil.markus@gmail.com>"]
 license = "MIT"
 repository = "https://github.com/thillux/rand-esdm"
-description = "provides interface to ESDM RNG server"
-keywords = ["rand", "random", "esdm", "rng"]
+edition = "2021"
+description = "provides small tool to query and use ESDM"
+keywords = ["rand", "random", "esdm", "rng", "cli"]
 categories = ["cryptography"]
 
 [features]
 default = []
-privileged_tests = []
 
 [dependencies]
-rand_core = { version = "0.6.4", features = ["std"] }
-libc = { version = "0.2.153" }
-esdm-sys = { version = "0.0.4" }
-
-[dev-dependencies]
+clap = { version = "4.5.3", features = ["derive"] }
+hex = "0.4"
 rand = "0.8.5"
+rand-esdm = { version = "0.0.5" }
 
 [lints.clippy]
 all = { level = "deny", priority = 0 }
