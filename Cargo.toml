@@ -23,9 +23,9 @@ esdm-sys = { path = "./esdm-sys" }
 [dev-dependencies]
 rand = "0.8.5"
 
-#[[bin]]
-#name = "esdm-tool"
-#required-features = ["build-binary"]
+[[bin]]
+name = "esdm-tool"
+required-features = ["build-binary"]
 
 [lints.clippy]
 all = { level = "deny", priority = 0 }
