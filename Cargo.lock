@@ -356,7 +356,7 @@ dependencies = [
 
 [[package]]
 name = "rand-esdm"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "clap",
  "esdm-sys 0.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
