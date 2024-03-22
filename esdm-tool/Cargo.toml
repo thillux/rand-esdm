@@ -1,6 +1,6 @@
 [package]
 name = "esdm-tool"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Markus Theil <theil.markus@gmail.com>"]
 license = "MIT"
 repository = "https://github.com/thillux/rand-esdm"
@@ -16,7 +16,7 @@ default = []
 clap = { version = "4.5.3", features = ["derive"] }
 hex = "0.4"
 rand = "0.8.5"
-rand-esdm = { version = "0.1.0" }
+rand-esdm = { version = "0.1.1" }
 
 [lints.clippy]
 all = { level = "deny", priority = 0 }
