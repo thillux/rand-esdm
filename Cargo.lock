@@ -188,7 +188,7 @@ dependencies = [
 name = "esdm-sys"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c3d79ee303459d6da6b59af1bb7df898f9c8fb04f7560c37fa780c30a10cff2"
+checksum = "f51ac7ec83b6c6234b899369616e51b28118515a96290438983f5bf2d0812e17"
 dependencies = [
  "bindgen",
  "pkg-config",
@@ -201,7 +201,7 @@ dependencies = [
  "clap",
  "hex",
  "rand",
- "rand-esdm 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rand-esdm 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -374,7 +374,7 @@ dependencies = [
 name = "rand-esdm"
 version = "0.1.1"
 dependencies = [
- "esdm-sys 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "esdm-sys 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc",
  "rand",
  "rand_core",
@@ -385,9 +385,9 @@ dependencies = [
 name = "rand-esdm"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f43f1ded72b1c08aa83512b8506fa199f9f555f6b0ae0770fcdaece21e46dc95"
+checksum = "86793583a7656a59c80ca56928360c06d2b28766787533083b6060c6b450f578"
 dependencies = [
- "esdm-sys 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "esdm-sys 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc",
  "rand_core",
  "regex",
