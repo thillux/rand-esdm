@@ -188,7 +188,7 @@ dependencies = [
 
 [[package]]
 name = "esdm-sys"
-version = "0.0.6"
+version = "0.1.0"
 dependencies = [
  "bindgen",
  "pkg-config",
@@ -196,7 +196,7 @@ dependencies = [
 
 [[package]]
 name = "esdm-sys"
-version = "0.0.6"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6853b8abe8f2c3f9ce8710d3e44518bbd5849fc5afae83dbe1a53688a98bccc8"
 dependencies = [
@@ -206,7 +206,7 @@ dependencies = [
 
 [[package]]
 name = "esdm-tool"
-version = "0.0.6"
+version = "0.1.0"
 dependencies = [
  "clap",
  "hex",
@@ -382,7 +382,7 @@ dependencies = [
 
 [[package]]
 name = "rand-esdm"
-version = "0.0.6"
+version = "0.1.0"
 dependencies = [
  "esdm-sys 0.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc",
@@ -393,7 +393,7 @@ dependencies = [
 
 [[package]]
 name = "rand-esdm"
-version = "0.0.6"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "587def64e9a7bb3bbd89ed14ae2e6f0ae4886c000ef1d213caf1708c769fd6b9"
 dependencies = [
