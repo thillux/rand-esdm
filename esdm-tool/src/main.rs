@@ -39,9 +39,18 @@ struct ToolArgs {
 }
 
 fn handle_status() -> ExitCode {
-    esdm_rng_init_checked();
+    if !esdm_rng_init() {
+        println!("Cannot init ESDM connection. Exiting!");
+        return ExitCode::FAILURE;
+    }
 
-    print!("{}", esdm_status_str().unwrap());
+    if let Ok(status) = esdm_status_str() {
+        print!("{}", status);
+    } else {
+        println!("Cannot get ESDM status string. Exiting!");
+        esdm_rng_fini();
+        return ExitCode::FAILURE;
+    }
 
     esdm_rng_fini();
 
