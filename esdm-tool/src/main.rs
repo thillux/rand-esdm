@@ -2,7 +2,10 @@ use std::{io::Write, process::ExitCode, time::Duration};
 
 use clap::{arg, Args, Parser, Subcommand};
 use rand::RngCore;
-use rand_esdm::{esdm_get_entropy_count, esdm_get_entropy_level, esdm_is_fully_seeded, esdm_rng_fini, esdm_rng_init, esdm_rng_init_checked, esdm_status_str, EsdmRng};
+use rand_esdm::{
+    esdm_get_entropy_count, esdm_get_entropy_level, esdm_is_fully_seeded, esdm_rng_fini,
+    esdm_rng_init, esdm_rng_init_checked, esdm_status_str, EsdmRng,
+};
 
 #[derive(Debug, Args)]
 struct GetRandomArg {
@@ -45,7 +48,7 @@ fn handle_status() -> ExitCode {
     }
 
     if let Ok(status) = esdm_status_str() {
-        print!("{}", status);
+        print!("{status}");
     } else {
         println!("Cannot get ESDM status string. Exiting!");
         esdm_rng_fini();
@@ -65,7 +68,7 @@ fn wait_until_seeded(arg: &WaitUntilSeededArg) -> ExitCode {
             println!("ESDM is still not fully seeded! Retry in 1s.");
             try_counter -= 1;
             std::thread::sleep(Duration::from_secs(1));
-            continue;    
+            continue;
         }
         if let Some(status) = esdm_is_fully_seeded() {
             if status {
