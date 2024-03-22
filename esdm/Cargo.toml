@@ -16,7 +16,7 @@ privileged_tests = []
 [dependencies]
 rand_core = { version = "0.6.4", features = ["std"] }
 libc = { version = "0.2.153" }
-esdm-sys = { version = "0.0.4" }
+esdm-sys = { version = "0.0.6" }
 regex = "1.10.3"
 
 [dev-dependencies]
