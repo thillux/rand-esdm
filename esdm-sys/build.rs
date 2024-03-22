@@ -5,7 +5,7 @@ use bindgen::Builder;
 fn main() {
     pkg_config::Config::new().probe("esdm_rpc_client").unwrap();
     pkg_config::Config::new().probe("esdm_aux_client").unwrap();
-    pkg_config::Config::new().probe("protobuf-c").unwrap();
+    pkg_config::Config::new().probe("libprotobuf-c").unwrap();
 
     let bindings = Builder::default()
         .header("esdm-include.h")

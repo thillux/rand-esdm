@@ -20,8 +20,9 @@
             sha256 = "sha256-Gpg3MfgiuNxUigETFnVX9PQ+5PXmpbEPVDl4VHvegZ8=";
           };
         }))
+        protobufc
       ];
-      nativeBuildInputs = with pkgs; [ pkg-config rustPlatform.bindgenHook protobufc ];
+      nativeBuildInputs = with pkgs; [ pkg-config rustPlatform.bindgenHook ];
     in
     {
       packages.x86_64-linux = rec {
