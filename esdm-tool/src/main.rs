@@ -1,10 +1,15 @@
-use std::{io::Write, process::ExitCode, time::Duration};
+use std::{
+    io::{Read, Write},
+    process::ExitCode,
+    time::Duration,
+};
 
 use clap::{arg, Args, Parser, Subcommand};
 use rand::RngCore;
 use rand_esdm::{
-    esdm_get_entropy_count, esdm_get_entropy_level, esdm_is_fully_seeded, esdm_rng_fini,
-    esdm_rng_init, esdm_rng_init_checked, esdm_status_str, EsdmRng,
+    esdm_add_entropy, esdm_get_entropy_count, esdm_get_entropy_level, esdm_is_fully_seeded,
+    esdm_rng_fini, esdm_rng_fini_priv, esdm_rng_init, esdm_rng_init_checked,
+    esdm_rng_init_priv_checked, esdm_status_str, EsdmRng,
 };
 
 #[derive(Debug, Args)]
@@ -25,11 +30,18 @@ struct WaitUntilSeededArg {
     tries: usize,
 }
 
+#[derive(Debug, Args)]
+struct WriteToAuxPoolArg {
+    #[arg(required = false, default_value = "0")]
+    ent_bits: usize,
+}
+
 #[derive(Debug, Subcommand)]
 enum ToolCommand {
     Status,
     EntropyLevel,
     EntropyCount,
+    WriteToAuxPool(WriteToAuxPoolArg),
     WaitUntilSeeded(WaitUntilSeededArg),
     GetRandom(GetRandomArg),
 }
@@ -123,6 +135,34 @@ fn get_entropy_count() -> ExitCode {
     ExitCode::SUCCESS
 }
 
+fn write_to_aux_pool(arg: &WriteToAuxPoolArg) -> ExitCode {
+    esdm_rng_init_checked();
+    esdm_rng_init_priv_checked();
+
+    let mut exit_status = ExitCode::SUCCESS;
+
+    let mut stdin = std::io::stdin();
+    let mut buf = vec![];
+    if let Ok(size) = stdin.read_to_end(&mut buf) {
+        if esdm_add_entropy(&buf, u32::try_from(arg.ent_bits).unwrap()).is_err() {
+            exit_status = ExitCode::FAILURE;
+            eprintln!("Failed to seed ESDM, maybe root privileges missing?");
+        } else {
+            println!(
+                "Added {size} Byte input to ESDM Auxiliary Pool, accounted with {} Bit of entropy.",
+                arg.ent_bits
+            );
+        }
+    } else {
+        println!("Seeding ESDM Aux Pool failed!");
+    }
+
+    esdm_rng_fini_priv();
+    esdm_rng_fini();
+
+    exit_status
+}
+
 fn main() -> ExitCode {
     let args = ToolArgs::parse();
 
@@ -132,5 +172,6 @@ fn main() -> ExitCode {
         ToolCommand::GetRandom(arg) => get_random(&arg),
         ToolCommand::EntropyLevel => get_entropy_level(),
         ToolCommand::EntropyCount => get_entropy_count(),
+        ToolCommand::WriteToAuxPool(arg) => write_to_aux_pool(&arg),
     }
 }
