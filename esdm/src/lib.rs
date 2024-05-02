@@ -39,13 +39,15 @@ pub struct EsdmRng {
 pub fn esdm_rng_init() -> bool {
     let mut guard = LIB_MUTEX_UNPRIV.lock().unwrap();
 
-    if *guard == 0 {
-        *guard += 1;
+    let ret = if *guard == 0 {
         unsafe { esdm::esdm_rpcc_init_unpriv_service(None) == 0 }
     } else {
-        *guard += 1;
         true
-    }
+    };
+
+    *guard += 1;
+
+    ret
 }
 
 /// initializes the client connection to ESDM, asserts if something goes wrong
@@ -58,6 +60,7 @@ pub fn esdm_rng_init_checked() {
 /// Call in order to free ressources needed for ESDM client connection
 pub fn esdm_rng_fini() {
     let mut guard = LIB_MUTEX_UNPRIV.lock().unwrap();
+    assert_ne!(*guard, 0);
 
     if *guard == 1 {
         unsafe { esdm::esdm_rpcc_fini_unpriv_service() };
@@ -72,13 +75,15 @@ pub fn esdm_rng_fini() {
 pub fn esdm_rng_init_priv() -> bool {
     let mut guard = LIB_MUTEX_PRIV.lock().unwrap();
 
-    if *guard == 0 {
-        *guard += 1;
+    let ret = if *guard == 0 {
         unsafe { esdm::esdm_rpcc_init_priv_service(None) == 0 }
     } else {
-        *guard += 1;
         true
-    }
+    };
+
+    *guard += 1;
+
+    ret
 }
 
 /// initializes the client connection to ESDM, asserts if something goes wrong
@@ -91,6 +96,7 @@ pub fn esdm_rng_init_priv_checked() {
 /// Call in order to free ressources needed for ESDM client connection (privileged mode)
 pub fn esdm_rng_fini_priv() {
     let mut guard = LIB_MUTEX_PRIV.lock().unwrap();
+    assert_ne!(*guard, 0);
 
     if *guard == 1 {
         unsafe { esdm::esdm_rpcc_fini_priv_service() };
