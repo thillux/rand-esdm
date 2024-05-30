@@ -2,3 +2,18 @@
 members = ["esdm-sys", "esdm", "esdm-tool"]
 default-members = ["esdm-tool"]
 resolver = "2"
+
+[workspace.package]
+version = "0.1.3"
+authors = ["Markus Theil <theil.markus@gmail.com>"]
+
+[workspace.dependencies]
+rand-esdm = "0.1.1"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = 0 }
+pedantic = { level = "deny", priority = 0 }
+cargo = { level = "deny", priority = 0 }
+missing_safety_doc = { level = "allow", priority = 1 }
+missing_errors_doc = { level = "allow", priority = 1 }
+missing_panics_doc = { level = "allow", priority = 1 }

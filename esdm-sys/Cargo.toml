@@ -1,13 +1,13 @@
 [package]
 name = "esdm-sys"
 edition = "2021"
-authors = ["Markus Theil <theil.markus@gmail.com>"]
 license = "MIT"
-version = "0.1.1"
 repository = "https://github.com/thillux/rand-esdm"
 description = "provides interface to ESDM RNG server (ffi-bindings)"
 keywords = ["rand", "random", "esdm", "rng"]
 categories = ["external-ffi-bindings"]
+version.workspace = true
+authors.workspace = true
 
 [build-dependencies]
 pkg-config = "0.3.30"
@@ -15,3 +15,6 @@ pkg-config = "0.3.30"
 [build-dependencies.bindgen]
 features = ["runtime"]
 version = "0.69.4"
+
+[lints]
+workspace = true

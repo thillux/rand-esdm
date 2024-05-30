@@ -1,13 +1,13 @@
 [package]
 name = "rand-esdm"
-version = "0.1.1"
 edition = "2021"
-authors = ["Markus Theil <theil.markus@gmail.com>"]
 license = "MIT"
 repository = "https://github.com/thillux/rand-esdm"
 description = "provides interface to ESDM RNG server"
 keywords = ["rand", "random", "esdm", "rng"]
 categories = ["cryptography"]
+version.workspace = true
+authors.workspace = true
 
 [features]
 default = []
@@ -15,17 +15,12 @@ privileged_tests = []
 
 [dependencies]
 rand_core = { version = "0.6.4", features = ["std"] }
-libc = { version = "0.2.153" }
+libc = { version = "0.2.155" }
 esdm-sys = { version = "0.1.1" }
-regex = "1.10.3"
+regex = "1.10.4"
 
 [dev-dependencies]
 rand = "0.8.5"
 
-[lints.clippy]
-all = { level = "deny", priority = 0 }
-pedantic = { level = "deny", priority = 0 }
-cargo = { level = "deny", priority = 0 }
-missing_safety_doc = { level = "allow", priority = 1 }
-missing_errors_doc = { level = "allow", priority = 1 }
-missing_panics_doc = { level = "allow", priority = 1 }
+[lints]
+workspace = true
