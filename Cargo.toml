@@ -8,6 +8,7 @@ version = "0.1.3"
 authors = ["Markus Theil <theil.markus@gmail.com>"]
 
 [workspace.dependencies]
+esdm-sys = "0.1.3"
 rand-esdm = "0.1.3"
 
 [workspace.lints.clippy]
