@@ -45,7 +45,9 @@ pub fn esdm_rng_init() -> bool {
         true
     };
 
-    *guard += 1;
+    if ret {
+        *guard += 1;
+    }
 
     ret
 }
@@ -81,7 +83,9 @@ pub fn esdm_rng_init_priv() -> bool {
         true
     };
 
-    *guard += 1;
+    if ret {
+        *guard += 1;
+    }
 
     ret
 }

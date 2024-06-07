@@ -10,18 +10,7 @@
     let
       pkgs = nixpkgs.legacyPackages.x86_64-linux;
       craneLib = crane.lib.x86_64-linux;
-      buildInputs = with pkgs; [
-        (esdm.overrideAttrs (finalAttrs: previousAttrs: {
-          version = "1.0.3";
-          src = pkgs.fetchFromGitHub {
-            owner = "smuellerDD";
-            repo = "esdm";
-            rev = "master";
-            sha256 = "sha256-Gpg3MfgiuNxUigETFnVX9PQ+5PXmpbEPVDl4VHvegZ8=";
-          };
-        }))
-        protobufc
-      ];
+      buildInputs = with pkgs; [ esdm protobufc ];
       nativeBuildInputs = with pkgs; [ pkg-config rustPlatform.bindgenHook ];
     in
     {
