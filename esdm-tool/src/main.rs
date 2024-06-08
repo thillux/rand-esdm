@@ -76,20 +76,12 @@ fn wait_until_seeded(arg: &WaitUntilSeededArg) -> ExitCode {
     let mut try_counter = arg.tries;
 
     while try_counter > 0 {
-        if !esdm_rng_init() {
-            println!("ESDM is still not fully seeded! Retry in 1s.");
-            try_counter -= 1;
-            std::thread::sleep(Duration::from_secs(1));
-            continue;
-        }
         if let Some(status) = esdm_is_fully_seeded() {
             if status {
-                esdm_rng_fini();
                 println!("ESDM is fully seeded!");
                 return ExitCode::SUCCESS;
             }
         }
-        esdm_rng_fini();
         println!("ESDM is still not fully seeded! Retry in 1s.");
         try_counter -= 1;
         std::thread::sleep(Duration::from_secs(1));
