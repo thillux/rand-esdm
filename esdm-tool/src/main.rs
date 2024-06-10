@@ -1,6 +1,6 @@
 use std::{
     io::{Read, Write},
-    process::ExitCode,
+    process::{ExitCode, Stdio},
     time::Duration,
 };
 
@@ -38,6 +38,7 @@ struct WriteToAuxPoolArg {
 
 #[derive(Debug, Subcommand)]
 enum ToolCommand {
+    IsFullySeeded,
     Status,
     EntropyLevel,
     EntropyCount,
@@ -76,12 +77,37 @@ fn wait_until_seeded(arg: &WaitUntilSeededArg) -> ExitCode {
     let mut try_counter = arg.tries;
 
     while try_counter > 0 {
-        if let Some(status) = esdm_is_fully_seeded() {
-            if status {
-                println!("ESDM is fully seeded!");
-                return ExitCode::SUCCESS;
+        /*
+         * reuse, if SEGV on startup is resolved
+         */
+        // if let Some(status) = esdm_is_fully_seeded() {
+        //     if status {
+        //         println!("ESDM is fully seeded!");
+        //         return ExitCode::SUCCESS;
+        //     }
+        // }
+
+        match std::env::current_exe() {
+            Ok(exe_path) => {
+                if let Ok(status) = std::process::Command::new(exe_path)
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .env_clear()
+                    .arg("is-fully-seeded")
+                    .status()
+                {
+                    if status.success() {
+                        println!("ESDM is fully seeded!");
+                        return ExitCode::SUCCESS;
+                    }
+                }
             }
-        }
+            Err(e) => {
+                println!("failed to get current exe path: {e}");
+                return ExitCode::FAILURE;
+            }
+        };
+
         println!("ESDM is still not fully seeded! Retry in 1s.");
         try_counter -= 1;
         std::thread::sleep(Duration::from_secs(1));
@@ -155,10 +181,23 @@ fn write_to_aux_pool(arg: &WriteToAuxPoolArg) -> ExitCode {
     exit_status
 }
 
+fn is_fully_seeded() -> ExitCode {
+    if let Some(status) = esdm_is_fully_seeded() {
+        if status {
+            println!("ESDM is fully seeded!");
+            return ExitCode::SUCCESS;
+        }
+    }
+
+    println!("ESDM is not fully seeded!");
+    ExitCode::FAILURE
+}
+
 fn main() -> ExitCode {
     let args = ToolArgs::parse();
 
     match args.command {
+        ToolCommand::IsFullySeeded => is_fully_seeded(),
         ToolCommand::Status => handle_status(),
         ToolCommand::WaitUntilSeeded(arg) => wait_until_seeded(&arg),
         ToolCommand::GetRandom(arg) => get_random(&arg),
