@@ -150,6 +150,8 @@ impl RngCore for EsdmRng {
             };
             if ret_size == isize::try_from(dest.len()).unwrap() {
                 return;
+            } else {
+                eprintln!("esdm ret_size = {ret_size}");
             }
         }
         panic!("cannot get random bytes from ESDM!");
@@ -365,6 +367,32 @@ mod tests {
         for _ in 1..1000 {
             let random_num: u64 = rng.gen();
             println!("Random Number: {random_num:?}");
+        }
+    }
+
+    #[test]
+    fn test_multithreading() {
+        let mut threads = vec![];
+        let rng = &mut EsdmRng::new(EsdmRngType::FullySeeded);
+        let _ = rng.next_u64();
+
+        println!("Got bytes!");
+
+        for _ in 0..128 {
+            threads.push(std::thread::spawn(move || {
+                for _ in 0..100000 {
+                    let rng = &mut EsdmRng::new(EsdmRngType::FullySeeded);
+                    let _ = rng.next_u64();
+
+                    esdm_rng_init_checked();
+                    let _ = esdm_status_str();
+                    esdm_rng_fini();
+                }
+            }));
+        }
+
+        for t in threads {
+            let _ = t.join();
         }
     }
 
