@@ -4,12 +4,12 @@ default-members = ["esdm-tool"]
 resolver = "2"
 
 [workspace.package]
-version = "0.1.4"
+version = "0.1.5"
 authors = ["Markus Theil <theil.markus@gmail.com>"]
 
 [workspace.dependencies]
-esdm-sys = "0.1.4"
-rand-esdm = "0.1.4"
+esdm-sys = "0.1.5"
+rand-esdm = "0.1.5"
 
 [workspace.lints.clippy]
 all = { level = "deny", priority = 0 }
