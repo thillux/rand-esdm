@@ -10,7 +10,23 @@
     let
       pkgs = nixpkgs.legacyPackages.x86_64-linux;
       craneLib = crane.lib.x86_64-linux;
-      buildInputs = with pkgs; [ esdm protobufc ];
+      buildInputs = with pkgs; [
+        (esdm.overrideAttrs(prev: {
+          src = fetchFromGitHub {
+            owner = "smuellerDD";
+            repo = "esdm";
+            rev = "master";
+            sha256 = "sha256-L/DKpMrB4mWuCbDQVTt4/7TjpO6eCvP3KNKj4Fw9qY4=";
+          };
+          # mesonBuildType = "debug";
+          # dontStrip = true;
+          # mesonFlags = prev.mesonFlags ++ [
+          #   "-Dstrip=false"
+          #   "-Ddebug=true"
+          # ];
+        }))
+        protobufc
+      ];
       nativeBuildInputs = with pkgs; [ pkg-config rustPlatform.bindgenHook ];
     in
     {

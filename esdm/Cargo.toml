@@ -17,7 +17,7 @@ privileged_tests = []
 rand_core = { version = "0.6.4", features = ["std"] }
 libc = { version = "0.2.155" }
 esdm-sys = { workspace = true }
-regex = "1.10.4"
+regex = "1.10.5"
 
 [dev-dependencies]
 rand = "0.8.5"

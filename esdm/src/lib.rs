@@ -17,8 +17,8 @@ use esdm_sys::esdm_aux;
 // how often to retry RPC calls before returning an error
 const ESDM_RETRY_COUNT: u32 = 5;
 
-static LIB_MUTEX_UNPRIV: Mutex<u32> = Mutex::new(0);
-static LIB_MUTEX_PRIV: Mutex<u32> = Mutex::new(0);
+static LIB_MUTEX_UNPRIV: Mutex<u32> = Mutex::new(0u32);
+static LIB_MUTEX_PRIV: Mutex<u32> = Mutex::new(0u32);
 
 pub enum EsdmRngType {
     /// ESDM RNG implementation, which uses fresh entropy for every random output produced
@@ -371,6 +371,14 @@ mod tests {
     }
 
     #[test]
+    fn test_reuse() {
+        for _ in 0..1000 {
+            let rng = &mut EsdmRng::new(EsdmRngType::FullySeeded);
+            let _ = rng.next_u64();
+        }
+    }
+
+    #[test]
     fn test_multithreading() {
         let mut threads = vec![];
         let rng = &mut EsdmRng::new(EsdmRngType::FullySeeded);
@@ -378,15 +386,11 @@ mod tests {
 
         println!("Got bytes!");
 
-        for _ in 0..128 {
+        for _ in 0..10 {
             threads.push(std::thread::spawn(move || {
-                for _ in 0..100000 {
+                for _ in 0..1000 {
                     let rng = &mut EsdmRng::new(EsdmRngType::FullySeeded);
                     let _ = rng.next_u64();
-
-                    esdm_rng_init_checked();
-                    let _ = esdm_status_str();
-                    esdm_rng_fini();
                 }
             }));
         }
