@@ -1,38 +1,27 @@
 {
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-    crane.url = "github:ipetkov/crane";
-    crane.inputs.nixpkgs.follows = "nixpkgs";
     flake-utils.url = "github:numtide/flake-utils";
+    gitignore = {
+      url = "github:hercules-ci/gitignore.nix";
+      flake = false;
+    };
   };
 
-  outputs = { self, nixpkgs, crane, flake-utils, ... }:
+  outputs = { self, nixpkgs, gitignore, flake-utils, ... }:
     let
       pkgs = nixpkgs.legacyPackages.x86_64-linux;
-      craneLib = crane.lib.x86_64-linux;
       buildInputs = with pkgs; [
-        (esdm.overrideAttrs(prev: {
-          src = fetchFromGitHub {
-            owner = "smuellerDD";
-            repo = "esdm";
-            rev = "master";
-            sha256 = "sha256-L/DKpMrB4mWuCbDQVTt4/7TjpO6eCvP3KNKj4Fw9qY4=";
-          };
-          # mesonBuildType = "debug";
-          # dontStrip = true;
-          # mesonFlags = prev.mesonFlags ++ [
-          #   "-Dstrip=false"
-          #   "-Ddebug=true"
-          # ];
-        }))
+        esdm
         protobufc
       ];
       nativeBuildInputs = with pkgs; [ pkg-config rustPlatform.bindgenHook ];
+      inherit (import gitignore { inherit (pkgs) lib; }) gitignoreSource;
     in
     {
       packages.x86_64-linux = rec {
-        default = pkgs.callPackage ./esdm/build.nix {
-          inherit buildInputs nativeBuildInputs craneLib;
+        default = pkgs.callPackage ./build.nix {
+          inherit buildInputs nativeBuildInputs gitignoreSource;
         };
 
         run = pkgs.writeShellScriptBin "run" ''
