@@ -1,5 +1,5 @@
 [workspace]
-members = ["esdm-sys", "esdm", "esdm-tool"]
+members = ["esdm-sys", "esdm", "esdm-tool", "benchmark"]
 default-members = ["esdm-tool"]
 resolver = "2"
 

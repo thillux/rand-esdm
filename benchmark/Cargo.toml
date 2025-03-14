@@ -1,0 +1,21 @@
+[package]
+name = "esdm-benchmark"
+license = "MIT"
+repository = "https://github.com/thillux/rand-esdm"
+edition = "2021"
+description = "benchmarks ESDM"
+keywords = ["rand", "random", "esdm", "rng", "cli"]
+categories = ["cryptography"]
+version.workspace = true
+authors.workspace = true
+
+[features]
+default = []
+
+[dependencies]
+hex = "0.4"
+rand = "0.8.5"
+rand-esdm = { workspace = true }
+
+[lints]
+workspace = true
