@@ -8,14 +8,15 @@ keywords = ["rand", "random", "esdm", "rng", "cli"]
 categories = ["cryptography"]
 version.workspace = true
 authors.workspace = true
+readme = false
 
 [features]
 default = []
 
 [dependencies]
-clap = { version = "4.5.10", features = ["derive"] }
+clap = { version = "4.5.32", features = ["derive"] }
 hex = "0.4"
-rand = "0.8.5"
+rand_core = "0.9.3"
 rand-esdm = { workspace = true }
 
 [lints]

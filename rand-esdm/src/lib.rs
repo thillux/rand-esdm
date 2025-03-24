@@ -1,9 +1,10 @@
 use libc::ETIMEDOUT;
-use rand_core::{Error, RngCore};
+use rand_core::RngCore;
 use regex::Regex;
 use std::ffi::{c_char, CString};
 use std::mem::MaybeUninit;
 
+use std::io::Error;
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -156,11 +157,6 @@ impl RngCore for EsdmRng {
         }
         panic!("cannot get random bytes from ESDM!");
     }
-
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Error> {
-        self.fill_bytes(dest);
-        Ok(())
-    }
 }
 
 /*
@@ -175,7 +171,7 @@ pub fn esdm_write_data(data: &[u8]) -> Result<(), Error> {
         }
     }
 
-    Err(Error::new("ESDM error write"))
+    Err(Error::other("ESDM error write"))
 }
 
 pub fn esdm_get_entropy_count() -> Result<u32, Error> {
@@ -187,7 +183,7 @@ pub fn esdm_get_entropy_count() -> Result<u32, Error> {
             return Ok(ent_cnt);
         }
     }
-    Err(Error::new("ESDM error get entropy"))
+    Err(Error::other("ESDM error get entropy"))
 }
 
 pub fn esdm_add_entropy(entropy_bytes: &[u8], entropy_count: u32) -> Result<(), Error> {
@@ -204,7 +200,7 @@ pub fn esdm_add_entropy(entropy_bytes: &[u8], entropy_count: u32) -> Result<(), 
         }
     }
 
-    Err(Error::new("ESDM error add entropy"))
+    Err(Error::other("ESDM error add entropy"))
 }
 
 pub fn esdm_add_to_entropy_count(entropy_increment: u32) -> Result<(), Error> {
@@ -214,7 +210,7 @@ pub fn esdm_add_to_entropy_count(entropy_increment: u32) -> Result<(), Error> {
             return Ok(());
         }
     }
-    Err(Error::new("ESDM error add entropy count"))
+    Err(Error::other("ESDM error add entropy count"))
 }
 
 pub fn esdm_reseed_crng() -> Result<(), Error> {
@@ -224,7 +220,7 @@ pub fn esdm_reseed_crng() -> Result<(), Error> {
             return Ok(());
         }
     }
-    Err(Error::new("ESDM error reseed crng"))
+    Err(Error::other("ESDM error reseed crng"))
 }
 
 pub fn esdm_clear_pool() -> Result<(), Error> {
@@ -234,7 +230,7 @@ pub fn esdm_clear_pool() -> Result<(), Error> {
             return Ok(());
         }
     }
-    Err(Error::new("ESDM error clear pool"))
+    Err(Error::other("ESDM error clear pool"))
 }
 
 pub fn esdm_status_str() -> Result<String, Error> {
@@ -257,7 +253,7 @@ pub fn esdm_status_str() -> Result<String, Error> {
             return Ok(str.into_string().unwrap());
         }
     }
-    Err(Error::new("ESDM error clear pool"))
+    Err(Error::other("ESDM error clear pool"))
 }
 
 pub fn esdm_is_fully_seeded() -> Option<bool> {
@@ -328,7 +324,7 @@ impl EsdmNotification {
     pub fn wait_for_entropy_needed_timeout(&mut self, dur: Duration) -> Result<u32, Error> {
         let mut ts: libc::timespec = unsafe { MaybeUninit::zeroed().assume_init() };
         if unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) } != 0 {
-            return Err(Error::new("get entropy clock failed"));
+            return Err(Error::other("get entropy clock failed"));
         }
 
         let mut ts_esdm = esdm_aux::timespec {
@@ -344,12 +340,12 @@ impl EsdmNotification {
             esdm_aux::esdm_aux_timedwait_for_need_entropy(std::ptr::addr_of_mut!(ts_esdm))
         };
         if ret == ETIMEDOUT {
-            return Err(Error::new("get entropy timed out"));
+            return Err(Error::other("get entropy timed out"));
         }
 
         match esdm_get_entropy_count() {
             Ok(cnt) => Ok(cnt),
-            _ => Err(Error::new("ESDM error get entropy count")),
+            _ => Err(Error::other("ESDM error get entropy count")),
         }
     }
 }

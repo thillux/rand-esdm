@@ -1,3 +1,4 @@
+use rand_core::RngCore;
 use std::{
     io::{Read, Write},
     process::{ExitCode, Stdio},
@@ -5,7 +6,6 @@ use std::{
 };
 
 use clap::{arg, Args, Parser, Subcommand};
-use rand::RngCore;
 use rand_esdm::{
     esdm_add_entropy, esdm_get_entropy_count, esdm_get_entropy_level, esdm_is_fully_seeded,
     esdm_rng_fini, esdm_rng_fini_priv, esdm_rng_init, esdm_rng_init_checked,

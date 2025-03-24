@@ -1,5 +1,10 @@
 [workspace]
-members = ["esdm-sys", "esdm", "esdm-tool", "benchmark"]
+members = [
+    "benchmark",
+    "esdm-sys",
+    "esdm-tool",
+    "rand-esdm",
+]
 default-members = ["esdm-tool"]
 resolver = "2"
 
@@ -8,13 +13,14 @@ version = "0.1.5"
 authors = ["Markus Theil <theil.markus@gmail.com>"]
 
 [workspace.dependencies]
-esdm-sys = "0.1.5"
-rand-esdm = "0.1.5"
+esdm-sys = { path = "esdm-sys", version = "0.1.5" }
+rand-esdm = { path = "rand-esdm", version = "0.1.5" }
 
 [workspace.lints.clippy]
 all = { level = "deny", priority = 0 }
 pedantic = { level = "deny", priority = 0 }
 cargo = { level = "deny", priority = 0 }
+cargo-common-metadata = { level = "allow", priority = 1 }
 missing_safety_doc = { level = "allow", priority = 1 }
 missing_errors_doc = { level = "allow", priority = 1 }
 missing_panics_doc = { level = "allow", priority = 1 }

@@ -14,13 +14,13 @@ default = []
 privileged_tests = []
 
 [dependencies]
-rand_core = { version = "0.6.4", features = ["std"] }
-libc = { version = "0.2.155" }
+rand_core = { version = "0.9.3", features = ["std"] }
+libc = { version = "0.2.171" }
 esdm-sys = { workspace = true }
-regex = "1.10.5"
+regex = "1.11.1"
 
 [dev-dependencies]
-rand = "0.8.5"
+rand = "0.9.0"
 
 [lints]
 workspace = true
