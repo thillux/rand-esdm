@@ -1,6 +1,7 @@
 use rand_chacha::ChaCha20Rng;
 use rand_core::{OsRng, RngCore, SeedableRng, TryRngCore};
 use rand_esdm::{EsdmRng, EsdmRngType};
+use rand_xoshiro::Xoshiro256PlusPlus;
 
 trait Benchmark {
     fn fill_bytes(&mut self, dst: &mut [u8]);
@@ -9,7 +10,7 @@ trait Benchmark {
 fn benchmark_rng(rng: &mut impl Benchmark) {
     use std::time::Instant;
 
-    let sizes = cute::c![1 << x, for x in 0..15];
+    let sizes = cute::c![1 << x, for x in 0..12];
     let iterations = 20000;
 
     for size in &sizes {
@@ -86,6 +87,27 @@ impl Benchmark for BenchmarkChaCha20 {
     }
 }
 
+/*
+ * Xoshiro256++
+ */
+struct BenchmarkXoshiro256PlusPlus {
+    rng: Xoshiro256PlusPlus,
+}
+
+impl Default for BenchmarkXoshiro256PlusPlus {
+    fn default() -> Self {
+        BenchmarkXoshiro256PlusPlus {
+            rng: Xoshiro256PlusPlus::from_os_rng(),
+        }
+    }
+}
+
+impl Benchmark for BenchmarkXoshiro256PlusPlus {
+    fn fill_bytes(&mut self, buf: &mut [u8]) {
+        self.rng.fill_bytes(buf);
+    }
+}
+
 fn main() {
     println!("ESDM:");
     let mut rng_esdm = BenchmarkEsdm::default();
@@ -102,4 +124,10 @@ fn main() {
     println!("rand_chacha (ChaCha20):");
     let mut rng_chacha = BenchmarkChaCha20::default();
     benchmark_rng(&mut rng_chacha);
+
+    println!();
+
+    println!("rand_xoshiro (Xoshiro256++):");
+    let mut rng_xoshiro = BenchmarkXoshiro256PlusPlus::default();
+    benchmark_rng(&mut rng_xoshiro);
 }
