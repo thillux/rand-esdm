@@ -2,7 +2,7 @@ use rand_core::RngCore;
 use std::{
     io::{Read, Write},
     process::{ExitCode, Stdio},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use clap::{Args, Parser, Subcommand, arg};
@@ -54,6 +54,9 @@ enum ToolCommand {
     WaitUntilSeedingNeeded(WaitUntilSeedingNecessaryArg),
     GetRandom(GetRandomArg),
     SeedFromOs,
+    ReseedFromOs,
+    StressMultithreading,
+    StressDelay,
 }
 
 #[derive(Parser, Debug)]
@@ -261,6 +264,82 @@ fn seed_from_os() -> ExitCode {
     exit_status
 }
 
+fn reseed_from_os() -> ExitCode {
+    let start = Instant::now();
+    for i in 0..100000 {
+        let arg = WaitUntilSeedingNecessaryArg { timeout_secs: 100 };
+        wait_until_seeding_necessary(&arg);
+        let elapsed = start.elapsed();
+        println!(
+            "Wakeup {i} after {} secs: need entropy",
+            elapsed.as_secs_f64()
+        );
+
+        let _ = seed_from_os();
+        let elapsed = start.elapsed();
+        println!("Reseed {i} after {} secs: reseeded", elapsed.as_secs_f64());
+    }
+
+    ExitCode::SUCCESS
+}
+
+fn stress_multithreading() -> ExitCode {
+    let mut threads = vec![];
+
+    let rng = &mut EsdmRng::new(rand_esdm::EsdmRngType::FullySeeded);
+    let _ = rng.next_u64();
+    println!("Got bytes on a single core! Start multi-core stress test!");
+
+    let cores = std::thread::available_parallelism().unwrap().into();
+    println!("Use {cores} threads");
+
+    for i in 0..cores {
+        println!("Start thread {i}");
+        threads.push(std::thread::spawn(move || {
+            stress_one_core();
+        }));
+    }
+
+    for t in threads {
+        let _ = t.join();
+    }
+
+    ExitCode::SUCCESS
+}
+
+fn stress_one_core() {
+    let mut rng = rand_esdm::EsdmRng::new(rand_esdm::EsdmRngType::FullySeeded);
+    let mut max_duration = None;
+    let mut mean_duration = 0.0;
+    let alpha = 0.2;
+    let mut i: u64 = 0;
+    for _ in 0..10000000 {
+        let start = Instant::now();
+        let rnd = rng.next_u32();
+        let duration = start.elapsed();
+        mean_duration = alpha * duration.as_secs_f64() + (1.0 - alpha) * mean_duration;
+        if max_duration.is_none() || duration.as_secs_f64() > max_duration.unwrap() {
+            println!("rnd: {rnd} took {duration:?}");
+            max_duration = Some(duration.as_secs_f64());
+        }
+        i += 1;
+
+        if i % 10000 == 0 {
+            println!("mean duration: {duration:?}");
+        }
+    }
+}
+
+fn stress_delay() -> ExitCode {
+    rand_esdm::esdm_rng_init_checked();
+
+    stress_one_core();
+
+    rand_esdm::esdm_rng_fini();
+
+    ExitCode::SUCCESS
+}
+
 fn main() -> ExitCode {
     let args = ToolArgs::parse();
 
@@ -275,5 +354,8 @@ fn main() -> ExitCode {
         ToolCommand::CrngReseed => crng_reseed(),
         ToolCommand::WaitUntilSeedingNeeded(arg) => wait_until_seeding_necessary(&arg),
         ToolCommand::SeedFromOs => seed_from_os(),
+        ToolCommand::StressDelay => stress_delay(),
+        ToolCommand::StressMultithreading => stress_multithreading(),
+        ToolCommand::ReseedFromOs => reseed_from_os(),
     }
 }
