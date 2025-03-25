@@ -7,9 +7,9 @@ use std::{
 
 use clap::{Args, Parser, Subcommand, arg};
 use rand_esdm::{
-    EsdmRng, esdm_add_entropy, esdm_get_entropy_count, esdm_get_entropy_level,
-    esdm_is_fully_seeded, esdm_rng_fini, esdm_rng_fini_priv, esdm_rng_init, esdm_rng_init_checked,
-    esdm_rng_init_priv_checked, esdm_status_str,
+    EsdmNotification, EsdmRng, esdm_add_entropy, esdm_crng_reseed, esdm_get_entropy_count,
+    esdm_get_entropy_level, esdm_is_fully_seeded, esdm_rng_fini, esdm_rng_fini_priv, esdm_rng_init,
+    esdm_rng_init_checked, esdm_rng_init_priv_checked, esdm_status_str,
 };
 
 #[derive(Debug, Args)]
@@ -31,6 +31,12 @@ struct WaitUntilSeededArg {
 }
 
 #[derive(Debug, Args)]
+struct WaitUntilSeedingNecessaryArg {
+    #[arg(required = false, default_value = "100")]
+    timeout_secs: u64,
+}
+
+#[derive(Debug, Args)]
 struct WriteToAuxPoolArg {
     #[arg(required = false, default_value = "0")]
     ent_bits: usize,
@@ -42,9 +48,12 @@ enum ToolCommand {
     Status,
     EntropyLevel,
     EntropyCount,
+    CrngReseed,
     WriteToAuxPool(WriteToAuxPoolArg),
     WaitUntilSeeded(WaitUntilSeededArg),
+    WaitUntilSeedingNeeded(WaitUntilSeedingNecessaryArg),
     GetRandom(GetRandomArg),
+    SeedFromOs,
 }
 
 #[derive(Parser, Debug)]
@@ -193,6 +202,59 @@ fn is_fully_seeded() -> ExitCode {
     ExitCode::FAILURE
 }
 
+fn crng_reseed() -> ExitCode {
+    esdm_rng_init_priv_checked();
+    let ok = esdm_crng_reseed().is_ok();
+    esdm_rng_fini_priv();
+
+    if ok {
+        ExitCode::SUCCESS
+    } else {
+        println!("CRNG reseed failed. Missing root privileges?");
+        ExitCode::FAILURE
+    }
+}
+
+fn wait_until_seeding_necessary(arg: &WaitUntilSeedingNecessaryArg) -> ExitCode {
+    let mut notifier = EsdmNotification::new();
+
+    if notifier
+        .wait_for_entropy_needed_timeout(Duration::from_secs(arg.timeout_secs))
+        .is_ok()
+    {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
+fn seed_from_os() -> ExitCode {
+    esdm_rng_init_priv_checked();
+
+    let mut exit_status = ExitCode::SUCCESS;
+    // get 64 Byte from OS
+    let mut buf = vec![0u8; 64];
+    if getrandom::fill(&mut buf).is_err() {
+        esdm_rng_fini_priv();
+        return ExitCode::FAILURE;
+    }
+
+    if esdm_add_entropy(&buf, u32::try_from(buf.len() * 8).unwrap()).is_err() {
+        exit_status = ExitCode::FAILURE;
+        eprintln!("Failed to seed ESDM, maybe root privileges missing?");
+    } else {
+        println!(
+            "Added {} Byte input to ESDM Auxiliary Pool, accounted with {} Bit of entropy.",
+            buf.len(),
+            buf.len() * 8
+        );
+    }
+
+    esdm_rng_fini_priv();
+
+    exit_status
+}
+
 fn main() -> ExitCode {
     let args = ToolArgs::parse();
 
@@ -204,5 +266,8 @@ fn main() -> ExitCode {
         ToolCommand::EntropyLevel => get_entropy_level(),
         ToolCommand::EntropyCount => get_entropy_count(),
         ToolCommand::WriteToAuxPool(arg) => write_to_aux_pool(&arg),
+        ToolCommand::CrngReseed => crng_reseed(),
+        ToolCommand::WaitUntilSeedingNeeded(arg) => wait_until_seeding_necessary(&arg),
+        ToolCommand::SeedFromOs => seed_from_os(),
     }
 }

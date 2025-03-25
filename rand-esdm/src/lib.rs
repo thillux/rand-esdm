@@ -174,6 +174,17 @@ pub fn esdm_write_data(data: &[u8]) -> Result<(), Error> {
     Err(Error::other("ESDM error write"))
 }
 
+pub fn esdm_crng_reseed() -> Result<(), Error> {
+    for _ in 0..ESDM_RETRY_COUNT {
+        let ret = unsafe { esdm::esdm_rpcc_rnd_reseed_crng() };
+        if ret == 0 {
+            return Ok(());
+        }
+    }
+
+    Err(Error::other("ESDM error reseed crng"))
+}
+
 pub fn esdm_get_entropy_count() -> Result<u32, Error> {
     for _ in 0..ESDM_RETRY_COUNT {
         let ent_cnt: u32 = 0;
