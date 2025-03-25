@@ -1,7 +1,7 @@
 use rand_core::RngCore;
 use std::{
     io::{Read, Write},
-    process::{ExitCode, Stdio},
+    process::{Child, Command, ExitCode, Stdio},
     time::{Duration, Instant},
 };
 
@@ -55,8 +55,9 @@ enum ToolCommand {
     GetRandom(GetRandomArg),
     SeedFromOs,
     ReseedFromOs,
-    StressMultithreading,
+    StressMultiThreading,
     StressDelay,
+    StressMultiProcess,
     Speed,
 }
 
@@ -284,7 +285,7 @@ fn reseed_from_os() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn stress_multithreading() -> ExitCode {
+fn stress_multi_threading() -> ExitCode {
     let mut threads = vec![];
 
     let rng = &mut EsdmRng::new(rand_esdm::EsdmRngType::FullySeeded);
@@ -346,7 +347,7 @@ fn measure_speed() -> ExitCode {
 
     let sizes = cute::c![1 << x, for x in 0..12];
 
-    for m in vec!["Fully Seeded", "Prediction Resistant"] {
+    for m in ["Fully Seeded", "Prediction Resistant"] {
         let mut rng = if m == "Fully Seeded" {
             EsdmRng::new(rand_esdm::EsdmRngType::FullySeeded)
         } else {
@@ -386,7 +387,44 @@ fn measure_speed() -> ExitCode {
                 }
             }
         }
-        println!()
+        println!();
+    }
+
+    ExitCode::SUCCESS
+}
+
+fn stress_multi_process() -> ExitCode {
+    use std::env;
+
+    // test if fds are leaking
+    esdm_rng_init_checked();
+    let mut rng = EsdmRng::new(rand_esdm::EsdmRngType::FullySeeded);
+    for _ in 0..100 {
+        let r = rng.next_u64();
+        println!("rnd: {r}");
+    }
+
+    let cores = std::thread::available_parallelism().unwrap().into();
+    println!("Use {cores} processes");
+
+    let mut processes: Vec<Child> = vec![];
+
+    match env::current_exe() {
+        Ok(exe_path) => {
+            println!("Path of this executable is: {}", exe_path.display());
+            for _ in 0..cores {
+                let p = Command::new(&exe_path)
+                    .args(["stress-delay"])
+                    .spawn()
+                    .unwrap();
+                processes.push(p);
+            }
+        }
+        Err(e) => println!("failed to get current exe path: {e}"),
+    };
+
+    for c in &mut processes {
+        let _ = c.wait();
     }
 
     ExitCode::SUCCESS
@@ -407,8 +445,9 @@ fn main() -> ExitCode {
         ToolCommand::WaitUntilSeedingNeeded(arg) => wait_until_seeding_necessary(&arg),
         ToolCommand::SeedFromOs => seed_from_os(),
         ToolCommand::StressDelay => stress_delay(),
-        ToolCommand::StressMultithreading => stress_multithreading(),
+        ToolCommand::StressMultiThreading => stress_multi_threading(),
         ToolCommand::ReseedFromOs => reseed_from_os(),
         ToolCommand::Speed => measure_speed(),
+        ToolCommand::StressMultiProcess => stress_multi_process(),
     }
 }

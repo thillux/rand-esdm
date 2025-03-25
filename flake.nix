@@ -12,7 +12,20 @@
     let
       pkgs = nixpkgs.legacyPackages.x86_64-linux;
       buildInputs = with pkgs; [
-        esdm
+        (esdm.overrideAttrs(prev: {
+          src = fetchFromGitHub {
+            owner = "thillux";
+            repo = "esdm";
+            rev = "client-close-on-exec";
+            sha256 = "sha256-HDvnfoZuEsW7aOBBFWF4AXGhu67r76YHmdPfB1ux/2Q=";
+          };
+          # mesonBuildType = "debug";
+          # dontStrip = true;
+          # mesonFlags = prev.mesonFlags ++ [
+          #   "-Dstrip=false"
+          #   "-Ddebug=true"
+          # ];
+        }))
         protobufc
       ];
       nativeBuildInputs = with pkgs; [ pkg-config rustPlatform.bindgenHook ];
