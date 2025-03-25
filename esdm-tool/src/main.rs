@@ -216,16 +216,22 @@ fn crng_reseed() -> ExitCode {
 }
 
 fn wait_until_seeding_necessary(arg: &WaitUntilSeedingNecessaryArg) -> ExitCode {
+    esdm_rng_init_checked();
+
     let mut notifier = EsdmNotification::new();
 
-    if notifier
+    let ret = if notifier
         .wait_for_entropy_needed_timeout(Duration::from_secs(arg.timeout_secs))
         .is_ok()
     {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
-    }
+    };
+
+    esdm_rng_fini();
+
+    ret
 }
 
 fn seed_from_os() -> ExitCode {
