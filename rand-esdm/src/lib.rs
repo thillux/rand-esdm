@@ -1,7 +1,7 @@
 use libc::ETIMEDOUT;
 use rand_core::RngCore;
 use regex::Regex;
-use std::ffi::{c_char, CString};
+use std::ffi::{CString, c_char};
 use std::mem::MaybeUninit;
 
 use std::io::Error;
@@ -361,7 +361,7 @@ mod tests {
         let mut rng = EsdmRng::new(EsdmRngType::PredictionResistant);
 
         for _ in 1..1000 {
-            let random_num: u64 = rng.gen();
+            let random_num: u64 = rng.next_u64();
             println!("Random Number: {random_num:?}");
         }
     }
@@ -401,7 +401,7 @@ mod tests {
         let mut rng = EsdmRng::new(EsdmRngType::FullySeeded);
 
         for _ in 1..1000 {
-            let random_num: u64 = rng.gen();
+            let random_num: u64 = rng.next_u64();
             println!("Random Number: {random_num:?}");
         }
     }
@@ -434,7 +434,8 @@ mod tests {
         let mut rng = EsdmRng::new(EsdmRngType::PredictionResistant);
 
         // don't do this in production: circular seeding
-        let buf: [u8; 32] = rng.gen();
+        let mut buf: [u8; 32];
+        rng.fill_bytes(&mut buf);
         esdm_clear_pool().unwrap();
         esdm_add_entropy(&buf, u32::try_from(buf.len() * 8).unwrap()).unwrap();
         assert!(esdm_get_entropy_count().unwrap() >= 32 * 8);

@@ -5,11 +5,11 @@ use std::{
     time::Duration,
 };
 
-use clap::{arg, Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, arg};
 use rand_esdm::{
-    esdm_add_entropy, esdm_get_entropy_count, esdm_get_entropy_level, esdm_is_fully_seeded,
-    esdm_rng_fini, esdm_rng_fini_priv, esdm_rng_init, esdm_rng_init_checked,
-    esdm_rng_init_priv_checked, esdm_status_str, EsdmRng,
+    EsdmRng, esdm_add_entropy, esdm_get_entropy_count, esdm_get_entropy_level,
+    esdm_is_fully_seeded, esdm_rng_fini, esdm_rng_fini_priv, esdm_rng_init, esdm_rng_init_checked,
+    esdm_rng_init_priv_checked, esdm_status_str,
 };
 
 #[derive(Debug, Args)]

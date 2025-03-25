@@ -24,7 +24,10 @@ fn benchmark_rng(rng: &mut impl Benchmark) {
 
         let elapsed = now.elapsed();
         let iterations_per_sec = (iterations as f64) / elapsed.as_secs_f64();
-        println!("Request size: {size} | Elapsed: {elapsed:.2?} | Rate: {:.2?} MB/s | Iterations: {iterations_per_sec:.2?} 1/s", (iterations * buf.len()) as f64 / elapsed.as_secs_f64() / 1000.0 / 1000.0);
+        println!(
+            "Request size: {size} | Elapsed: {elapsed:.2?} | Rate: {:.2?} MB/s | Iterations: {iterations_per_sec:.2?} 1/s",
+            (iterations * buf.len()) as f64 / elapsed.as_secs_f64() / 1000.0 / 1000.0
+        );
     }
 }
 

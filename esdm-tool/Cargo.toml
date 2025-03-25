@@ -2,7 +2,7 @@
 name = "esdm-tool"
 license = "MIT"
 repository = "https://github.com/thillux/rand-esdm"
-edition = "2021"
+edition.workspace = true
 description = "provides small tool to query and use ESDM"
 keywords = ["rand", "random", "esdm", "rng", "cli"]
 categories = ["cryptography"]
