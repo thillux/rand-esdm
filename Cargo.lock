@@ -196,6 +196,7 @@ name = "esdm-tool"
 version = "0.1.5"
 dependencies = [
  "clap",
+ "cute",
  "getrandom",
  "hex",
  "rand-esdm",

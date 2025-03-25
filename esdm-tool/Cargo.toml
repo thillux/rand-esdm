@@ -17,6 +17,7 @@ default = []
 clap = { version = "4.5.32", features = ["derive"] }
 hex = "0.4"
 rand_core = "0.9.3"
+cute = "0.3.0"
 rand-esdm = { workspace = true }
 getrandom = "0.3.2"
 

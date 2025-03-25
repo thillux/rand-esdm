@@ -57,6 +57,7 @@ enum ToolCommand {
     ReseedFromOs,
     StressMultithreading,
     StressDelay,
+    Speed,
 }
 
 #[derive(Parser, Debug)]
@@ -340,6 +341,57 @@ fn stress_delay() -> ExitCode {
     ExitCode::SUCCESS
 }
 
+fn measure_speed() -> ExitCode {
+    use std::time::Instant;
+
+    let sizes = cute::c![1 << x, for x in 0..12];
+
+    for m in vec!["Fully Seeded", "Prediction Resistant"] {
+        let mut rng = if m == "Fully Seeded" {
+            EsdmRng::new(rand_esdm::EsdmRngType::FullySeeded)
+        } else {
+            EsdmRng::new(rand_esdm::EsdmRngType::PredictionResistant)
+        };
+
+        let iterations = if m == "Fully Seeded" { 20000 } else { 100 };
+
+        println!("ESDM ({m}):");
+        for size in &sizes {
+            let mut buf = vec![0u8; *size];
+
+            let now = Instant::now();
+
+            for _ in 0..iterations {
+                rng.fill_bytes(&mut buf);
+            }
+
+            let elapsed = now.elapsed();
+            let iterations_per_sec = (iterations as f64) / elapsed.as_secs_f64();
+            if m == "Fully Seeded" {
+                println!(
+                    "Request size: {size} | Elapsed: {elapsed:.2?} | Rate: {:.2?} MB/s | Iterations: {iterations_per_sec:.2?} 1/s",
+                    (iterations * buf.len()) as f64 / elapsed.as_secs_f64() / 1000.0 / 1000.0
+                );
+            } else {
+                println!(
+                    "Request size: {size} | Elapsed: {elapsed:.2?} | Rate: {:.2?} KB/s | Iterations: {iterations_per_sec:.2?} 1/s",
+                    (iterations * buf.len()) as f64 / elapsed.as_secs_f64() / 1000.0
+                );
+
+                if *size >= 128 {
+                    println!(
+                        "\nSkip large sizes in prediction resistant mode, as there is no new information here"
+                    );
+                    break;
+                }
+            }
+        }
+        println!()
+    }
+
+    ExitCode::SUCCESS
+}
+
 fn main() -> ExitCode {
     let args = ToolArgs::parse();
 
@@ -357,5 +409,6 @@ fn main() -> ExitCode {
         ToolCommand::StressDelay => stress_delay(),
         ToolCommand::StressMultithreading => stress_multithreading(),
         ToolCommand::ReseedFromOs => reseed_from_os(),
+        ToolCommand::Speed => measure_speed(),
     }
 }
