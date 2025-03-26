@@ -8,7 +8,7 @@ use std::io::Error;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use esdm_sys::esdm;
+use esdm_sys::esdm::{self, esdm_rpcc_set_max_online_nodes};
 use esdm_sys::esdm_aux;
 
 /*
@@ -70,6 +70,12 @@ pub fn esdm_rng_fini() {
     }
 
     *guard -= 1;
+}
+
+pub fn esdm_set_max_online_nodes(nodes: u32) {
+    unsafe {
+        esdm_rpcc_set_max_online_nodes(nodes);
+    }
 }
 
 /// initializes the client connection to ESDM, asserts if something goes wrong

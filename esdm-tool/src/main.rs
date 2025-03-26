@@ -333,6 +333,8 @@ fn stress_one_core() {
 }
 
 fn stress_delay() -> ExitCode {
+    rand_esdm::esdm_set_max_online_nodes(1);
+
     rand_esdm::esdm_rng_init_checked();
 
     stress_one_core();
