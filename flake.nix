@@ -13,12 +13,14 @@
       pkgs = nixpkgs.legacyPackages.x86_64-linux;
       buildInputs = with pkgs; [
         (esdm.overrideAttrs(prev: {
-          src = fetchFromGitHub {
-            owner = "thillux";
-            repo = "esdm";
-            rev = "client-close-on-exec";
-            sha256 = "sha256-HDvnfoZuEsW7aOBBFWF4AXGhu67r76YHmdPfB1ux/2Q=";
-          };
+          src = /home/mtheil/Code/esdm;
+
+          # src = fetchFromGitHub {
+          #   owner = "thillux";
+          #   repo = "esdm";
+          #   rev = "client-close-on-exec";
+          #   sha256 = "sha256-HDvnfoZuEsW7aOBBFWF4AXGhu67r76YHmdPfB1ux/2Q=";
+          # };
           # mesonBuildType = "debug";
           # dontStrip = true;
           # mesonFlags = prev.mesonFlags ++ [

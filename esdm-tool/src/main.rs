@@ -1,8 +1,6 @@
 use rand_core::RngCore;
 use std::{
-    io::{Read, Write},
-    process::{Child, Command, ExitCode, Stdio},
-    time::{Duration, Instant},
+    io::{Read, Write}, process::{Child, Command, ExitCode, Stdio}, sync::mpsc::Sender, time::{Duration, Instant}
 };
 
 use clap::{Args, Parser, Subcommand, arg};
@@ -285,21 +283,34 @@ fn reseed_from_os() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn stress_multi_threading() -> ExitCode {
+fn stress_multi_threading(num_threads: Option<usize>) -> ExitCode {
+    use std::sync::mpsc;
+
     let mut threads = vec![];
 
     let rng = &mut EsdmRng::new(rand_esdm::EsdmRngType::FullySeeded);
     let _ = rng.next_u64();
     println!("Got bytes on a single core! Start multi-core stress test!");
 
-    let cores = std::thread::available_parallelism().unwrap().into();
+    let cores = if let Some(c) = num_threads {
+        c
+    } else {
+        usize::try_from(std::thread::available_parallelism().unwrap().get()).unwrap()
+    };
     println!("Use {cores} threads");
+
+    let (tx, rx) = mpsc::channel();
 
     for i in 0..cores {
         println!("Start thread {i}");
+        let mut tx1 = tx.clone();
         threads.push(std::thread::spawn(move || {
-            stress_one_core();
+            stress_one_core(&mut tx1);
         }));
+    }
+
+    for received in rx {
+        println!("Got: {received}");
     }
 
     for t in threads {
@@ -309,9 +320,8 @@ fn stress_multi_threading() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn stress_one_core() {
+fn stress_one_core(tx: &mut Sender<String>) {
     let mut rng = rand_esdm::EsdmRng::new(rand_esdm::EsdmRngType::FullySeeded);
-    let mut max_duration = None;
     let mut mean_duration = 0.0;
     let alpha = 0.2;
     let mut i: u64 = 0;
@@ -319,29 +329,22 @@ fn stress_one_core() {
         let start = Instant::now();
         let rnd = rng.next_u32();
         let duration = start.elapsed();
-        mean_duration = alpha * duration.as_secs_f64() + (1.0 - alpha) * mean_duration;
-        if max_duration.is_none() || duration.as_secs_f64() > max_duration.unwrap() {
-            println!("rnd: {rnd} took {duration:?}");
-            max_duration = Some(duration.as_secs_f64());
+        
+        if duration.as_secs_f64() > 100.0 * mean_duration {
+            let _ = tx.send(format!("rnd: {rnd} took {duration:?}"));
         }
+
+        mean_duration = alpha * duration.as_secs_f64() + (1.0 - alpha) * mean_duration;
         i += 1;
 
-        if i % 10000 == 0 {
-            println!("mean duration: {duration:?}");
+        if i % 20000 == 0 {
+            let _ = tx.send(format!("mean duration: {duration:?}"));
         }
     }
 }
 
 fn stress_delay() -> ExitCode {
-    rand_esdm::esdm_set_max_online_nodes(1);
-
-    rand_esdm::esdm_rng_init_checked();
-
-    stress_one_core();
-
-    rand_esdm::esdm_rng_fini();
-
-    ExitCode::SUCCESS
+    stress_multi_threading(Some(1))
 }
 
 fn measure_speed() -> ExitCode {
@@ -447,7 +450,7 @@ fn main() -> ExitCode {
         ToolCommand::WaitUntilSeedingNeeded(arg) => wait_until_seeding_necessary(&arg),
         ToolCommand::SeedFromOs => seed_from_os(),
         ToolCommand::StressDelay => stress_delay(),
-        ToolCommand::StressMultiThreading => stress_multi_threading(),
+        ToolCommand::StressMultiThreading => stress_multi_threading(None),
         ToolCommand::ReseedFromOs => reseed_from_os(),
         ToolCommand::Speed => measure_speed(),
         ToolCommand::StressMultiProcess => stress_multi_process(),
