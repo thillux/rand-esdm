@@ -22,6 +22,7 @@ all = { level = "deny", priority = 0 }
 pedantic = { level = "deny", priority = 0 }
 cargo = { level = "deny", priority = 0 }
 cargo-common-metadata = { level = "allow", priority = 1 }
+cast_precision_loss = { level = "allow", priority = 1 }
 missing_safety_doc = { level = "allow", priority = 1 }
 missing_errors_doc = { level = "allow", priority = 1 }
 missing_panics_doc = { level = "allow", priority = 1 }

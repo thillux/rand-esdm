@@ -1,4 +1,4 @@
-use rand_core::RngCore;
+use rand_core::TryRngCore;
 use std::{
     io::{Read, Write}, process::{Child, Command, ExitCode, Stdio}, sync::mpsc::Sender, time::{Duration, Instant}
 };
@@ -118,7 +118,7 @@ fn wait_until_seeded(arg: &WaitUntilSeededArg) -> ExitCode {
                 println!("failed to get current exe path: {e}");
                 return ExitCode::FAILURE;
             }
-        };
+        }
 
         println!("ESDM is still not fully seeded! Retry in 1s.");
         try_counter -= 1;
@@ -136,7 +136,7 @@ fn get_random(arg: &GetRandomArg) -> ExitCode {
     } else {
         EsdmRng::new(rand_esdm::EsdmRngType::FullySeeded)
     };
-    rng.fill_bytes(&mut buf);
+    rng.try_fill_bytes(&mut buf).unwrap();
 
     if arg.hex {
         print!("{}", hex::encode(buf));
@@ -266,7 +266,7 @@ fn seed_from_os() -> ExitCode {
 
 fn reseed_from_os() -> ExitCode {
     let start = Instant::now();
-    for i in 0..100000 {
+    for i in 0..100_000 {
         let arg = WaitUntilSeedingNecessaryArg { timeout_secs: 100 };
         wait_until_seeding_necessary(&arg);
         let elapsed = start.elapsed();
@@ -289,13 +289,13 @@ fn stress_multi_threading(num_threads: Option<usize>) -> ExitCode {
     let mut threads = vec![];
 
     let rng = &mut EsdmRng::new(rand_esdm::EsdmRngType::FullySeeded);
-    let _ = rng.next_u64();
+    let _ = rng.try_next_u64().unwrap();
     println!("Got bytes on a single core! Start multi-core stress test!");
 
     let cores = if let Some(c) = num_threads {
         c
     } else {
-        usize::try_from(std::thread::available_parallelism().unwrap().get()).unwrap()
+        std::thread::available_parallelism().unwrap().into()
     };
     println!("Use {cores} threads");
 
@@ -325,13 +325,14 @@ fn stress_one_core(tx: &mut Sender<String>) {
     let mut mean_duration = 0.0;
     let alpha = 0.2;
     let mut i: u64 = 0;
-    for _ in 0..10000000 {
+    //for _ in 0..10000000 {
+    loop {
         let start = Instant::now();
-        let rnd = rng.next_u32();
+        let rnd_number = rng.try_next_u32().unwrap();
         let duration = start.elapsed();
         
         if duration.as_secs_f64() > 100.0 * mean_duration {
-            let _ = tx.send(format!("rnd: {rnd} took {duration:?}"));
+            let _ = tx.send(format!("rnd: {rnd_number} took {duration:?}"));
         }
 
         mean_duration = alpha * duration.as_secs_f64() + (1.0 - alpha) * mean_duration;
@@ -368,7 +369,7 @@ fn measure_speed() -> ExitCode {
             let now = Instant::now();
 
             for _ in 0..iterations {
-                rng.fill_bytes(&mut buf);
+                rng.try_fill_bytes(&mut buf).unwrap();
             }
 
             let elapsed = now.elapsed();
@@ -405,7 +406,7 @@ fn stress_multi_process() -> ExitCode {
     esdm_rng_init_checked();
     let mut rng = EsdmRng::new(rand_esdm::EsdmRngType::FullySeeded);
     for _ in 0..100 {
-        let r = rng.next_u64();
+        let r = rng.try_next_u64().unwrap();
         println!("rnd: {r}");
     }
 
@@ -426,7 +427,7 @@ fn stress_multi_process() -> ExitCode {
             }
         }
         Err(e) => println!("failed to get current exe path: {e}"),
-    };
+    }
 
     for c in &mut processes {
         let _ = c.wait();

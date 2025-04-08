@@ -1,5 +1,5 @@
 use libc::ETIMEDOUT;
-use rand_core::RngCore;
+use rand_core::TryRngCore;
 use regex::Regex;
 use std::ffi::{CString, c_char};
 use std::mem::MaybeUninit;
@@ -133,35 +133,36 @@ impl Drop for EsdmRng {
 /*
  * rand_core trait implementations
  */
-impl RngCore for EsdmRng {
-    fn next_u32(&mut self) -> u32 {
-        u32::try_from(self.next_u64() & 0xFF_FF_FF_FF).unwrap()
+impl TryRngCore for EsdmRng {
+    type Error = std::io::Error;
+    
+    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+        Ok(u32::try_from(self.try_next_u64()? & 0xFF_FF_FF_FF).unwrap())
     }
 
-    fn next_u64(&mut self) -> u64 {
+    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
         let mut bytes: [u8; 8] = [0; 8];
-        self.fill_bytes(&mut bytes);
+        self.try_fill_bytes(&mut bytes)?;
 
-        u64::from_ne_bytes(bytes)
+        Ok(u64::from_ne_bytes(bytes))
     }
 
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
+    fn try_fill_bytes(&mut self, dst: &mut [u8]) -> Result<(), Self::Error> {
         for _ in 0..ESDM_RETRY_COUNT {
             let ret_size = match self.rng_type {
                 EsdmRngType::FullySeeded => unsafe {
-                    esdm::esdm_rpcc_get_random_bytes_full(dest.as_mut_ptr(), dest.len())
+                    esdm::esdm_rpcc_get_random_bytes_full(dst.as_mut_ptr(), dst.len())
                 },
                 EsdmRngType::PredictionResistant => unsafe {
-                    esdm::esdm_rpcc_get_random_bytes_pr(dest.as_mut_ptr(), dest.len())
+                    esdm::esdm_rpcc_get_random_bytes_pr(dst.as_mut_ptr(), dst.len())
                 },
             };
-            if ret_size == isize::try_from(dest.len()).unwrap() {
-                return;
-            } else {
-                eprintln!("esdm ret_size = {ret_size}");
+            if ret_size == isize::try_from(dst.len()).unwrap() {
+                return Ok(());
             }
         }
-        panic!("cannot get random bytes from ESDM!");
+
+        Err(Error::other("Unable to fetch random bytes from ESDM"))
     }
 }
 
@@ -378,7 +379,7 @@ mod tests {
         let mut rng = EsdmRng::new(EsdmRngType::PredictionResistant);
 
         for _ in 1..1000 {
-            let random_num: u64 = rng.next_u64();
+            let random_num: u64 = rng.try_next_u64().unwrap();
             println!("Random Number: {random_num:?}");
         }
     }
@@ -387,7 +388,7 @@ mod tests {
     fn test_reuse() {
         for _ in 0..1000 {
             let rng = &mut EsdmRng::new(EsdmRngType::FullySeeded);
-            let _ = rng.next_u64();
+            let _ = rng.try_next_u64().unwrap();
         }
     }
 
@@ -395,7 +396,7 @@ mod tests {
     fn test_multithreading() {
         let mut threads = vec![];
         let rng = &mut EsdmRng::new(EsdmRngType::FullySeeded);
-        let _ = rng.next_u64();
+        let _ = rng.try_next_u64().unwrap();
 
         println!("Got bytes!");
 
@@ -403,7 +404,7 @@ mod tests {
             threads.push(std::thread::spawn(move || {
                 for _ in 0..1000 {
                     let rng = &mut EsdmRng::new(EsdmRngType::FullySeeded);
-                    let _ = rng.next_u64();
+                    let _ = rng.try_next_u64().unwrap();
                 }
             }));
         }
@@ -418,7 +419,7 @@ mod tests {
         let mut rng = EsdmRng::new(EsdmRngType::FullySeeded);
 
         for _ in 1..1000 {
-            let random_num: u64 = rng.next_u64();
+            let random_num: u64 = rng.try_next_u64().unwrap();
             println!("Random Number: {random_num:?}");
         }
     }
