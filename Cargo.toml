@@ -9,13 +9,13 @@ default-members = ["esdm-tool"]
 resolver = "2"
 
 [workspace.package]
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Markus Theil <theil.markus@gmail.com>"]
 edition = "2024"
 
 [workspace.dependencies]
-esdm-sys = { path = "esdm-sys", version = "0.2.0" }
-rand-esdm = { path = "rand-esdm", version = "0.2.0" }
+esdm-sys = { path = "esdm-sys", version = "0.2.1" }
+rand-esdm = { path = "rand-esdm", version = "0.2.1" }
 
 [workspace.lints.clippy]
 all = { level = "deny", priority = 0 }

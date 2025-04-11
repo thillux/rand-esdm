@@ -12,7 +12,7 @@ It currently provides the minimal amount of bindings necessary to use ESDM toget
 ### Add rand-esdm to your Cargo.toml
 
 ```toml
-rand-esdm = "0.2.0"
+rand-esdm = "0.2.1"
 ```
 
 ### Generate Random Numbers with rand crate
@@ -29,5 +29,17 @@ use rand::Rng;
 
 Draw random numbers as needed, e.g.:
 ```rust  
-let rnd: u64 = rng.gen();
+let rnd: u64 = rng.random();
+```
+
+Complete toy example can be found in `examples/readme.rs`:
+```rust
+use rand::{Rng, TryRngCore};
+use rand_esdm::{EsdmRng, EsdmRngType};
+
+fn main() {
+    let mut rng = EsdmRng::new(EsdmRngType::FullySeeded).unwrap_err();
+    let rnd: u32 = rng.random();
+    println!("{rnd:X}");
+}
 ```
