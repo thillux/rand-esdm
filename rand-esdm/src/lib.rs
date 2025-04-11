@@ -251,6 +251,22 @@ pub fn esdm_clear_pool() -> Result<(), Error> {
     Err(Error::other("ESDM error clear pool"))
 }
 
+pub fn esdm_write_wakeup_thresh() -> Result<u32, Error> {
+    let write_wakeup_thresh: u32 = 0;
+    for _ in 0..ESDM_RETRY_COUNT {
+        let ret = unsafe {
+            esdm::esdm_rpcc_get_write_wakeup_thresh(
+                std::ptr::addr_of!(write_wakeup_thresh).cast_mut(),
+            )
+        };
+        if ret == 0 {
+            return Ok(write_wakeup_thresh);
+        }
+    }
+
+    Err(Error::other("ESDM error write wakeup thresh"))
+}
+
 pub fn esdm_status_str() -> Result<String, Error> {
     for _ in 0..ESDM_RETRY_COUNT {
         let mut status_bytes = vec![0; 8192];
@@ -383,6 +399,18 @@ mod tests {
             let random_num: u64 = rng.try_next_u64().unwrap();
             println!("Random Number: {random_num:?}");
         }
+    }
+
+    #[test]
+    fn test_write_wakeup_thresh() {
+        esdm_rng_init_checked();
+
+        let write_wakup_thresh = esdm_write_wakeup_thresh().unwrap();
+        assert_ne!(write_wakup_thresh, 0);
+
+        println!("write wakeup thresh: {write_wakup_thresh}");
+
+        esdm_rng_fini();
     }
 
     #[test]

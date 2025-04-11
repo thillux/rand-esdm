@@ -23,6 +23,7 @@ fn main() {
         .allowlist_function("esdm_rpcc_set_max_online_nodes")
         .allowlist_function("esdm_rpcc_status")
         .allowlist_function("esdm_rpcc_write_data")
+        .allowlist_function("esdm_rpcc_get_write_wakeup_thresh")
         .generate()
         .unwrap();
     let mut bindings_path = PathBuf::from(var("OUT_DIR").unwrap());
