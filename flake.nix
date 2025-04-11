@@ -13,20 +13,18 @@
       pkgs = nixpkgs.legacyPackages.x86_64-linux;
       buildInputs = with pkgs; [
         (esdm.overrideAttrs(prev: {
-          # src = /home/mtheil/Code/esdm;
-
           src = fetchFromGitHub {
             owner = "smuellerDD";
             repo = "esdm";
             rev = "master";
             sha256 = "sha256-coxD6meJ9GMcG+35hHxavv22eDjeseTOryGu3vprSZs=";
           };
-          mesonBuildType = "debug";
-          dontStrip = true;
-          mesonFlags = prev.mesonFlags ++ [
-            "-Dstrip=false"
-            "-Ddebug=true"
-          ];
+          # mesonBuildType = "debug";
+          # dontStrip = true;
+          # mesonFlags = prev.mesonFlags ++ [
+          #   "-Dstrip=false"
+          #   "-Ddebug=true"
+          # ];
         }))
         protobufc
       ];

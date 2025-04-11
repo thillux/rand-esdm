@@ -1,6 +1,9 @@
 use rand_core::TryRngCore;
 use std::{
-    io::{Read, Write}, process::{Child, Command, ExitCode, Stdio}, sync::mpsc::Sender, time::{Duration, Instant}
+    io::{Read, Write},
+    process::{Child, Command, ExitCode, Stdio},
+    sync::mpsc::Sender,
+    time::{Duration, Instant},
 };
 
 use clap::{Args, Parser, Subcommand, arg};
@@ -330,7 +333,7 @@ fn stress_one_core(tx: &mut Sender<String>) {
         let start = Instant::now();
         let rnd_number = rng.try_next_u32().unwrap();
         let duration = start.elapsed();
-        
+
         if duration.as_secs_f64() > 100.0 * mean_duration {
             let _ = tx.send(format!("rnd: {rnd_number} took {duration:?}"));
         }

@@ -135,7 +135,7 @@ impl Drop for EsdmRng {
  */
 impl TryRngCore for EsdmRng {
     type Error = std::io::Error;
-    
+
     fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
         Ok(u32::try_from(self.try_next_u64()? & 0xFF_FF_FF_FF).unwrap())
     }
@@ -274,6 +274,7 @@ pub fn esdm_status_str() -> Result<String, Error> {
     Err(Error::other("ESDM error clear pool"))
 }
 
+#[must_use]
 pub fn esdm_is_fully_seeded() -> Option<bool> {
     if !esdm_rng_init() {
         return None;
@@ -295,6 +296,7 @@ pub fn esdm_is_fully_seeded() -> Option<bool> {
     None
 }
 
+#[must_use]
 pub fn esdm_get_entropy_level() -> Option<u32> {
     if !esdm_rng_init() {
         return None;
@@ -302,7 +304,7 @@ pub fn esdm_get_entropy_level() -> Option<u32> {
 
     if let Ok(status) = esdm_status_str() {
         let entropy_level_regex = Regex::new(r"^ESDM entropy level: (?<level>\d+)$").unwrap();
-        for line in status.split("\n") {
+        for line in status.split('\n') {
             if let Some(caps) = entropy_level_regex.captures(line) {
                 let level_str = caps.get(1).unwrap().as_str();
                 let level = level_str.parse::<u32>().unwrap();
@@ -372,7 +374,6 @@ impl EsdmNotification {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::Rng;
 
     #[test]
     fn test_prediction_resistant_mode() {
@@ -449,11 +450,11 @@ mod tests {
         esdm_add_to_entropy_count(64 * 8).unwrap();
         esdm_reseed_crng().unwrap();
 
-        let mut rng = EsdmRng::new(EsdmRngType::PredictionResistant);
+        let mut rng = EsdmRng::new(EsdmRngType::FullySeeded);
 
         // don't do this in production: circular seeding
-        let mut buf: [u8; 32];
-        rng.fill_bytes(&mut buf);
+        let mut buf: [u8; 32] = [42; 32];
+        rng.try_fill_bytes(&mut buf).unwrap();
         esdm_clear_pool().unwrap();
         esdm_add_entropy(&buf, u32::try_from(buf.len() * 8).unwrap()).unwrap();
         assert!(esdm_get_entropy_count().unwrap() >= 32 * 8);
