@@ -48,7 +48,7 @@ impl Default for BenchmarkEsdm {
 
 impl Benchmark for BenchmarkEsdm {
     fn fill_bytes(&mut self, buf: &mut [u8]) {
-        self.rng.fill_bytes(buf);
+        self.rng.try_fill_bytes(buf).unwrap();
     }
 }
 
