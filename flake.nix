@@ -17,7 +17,7 @@
             owner = "smuellerDD";
             repo = "esdm";
             rev = "master";
-            sha256 = "sha256-coxD6meJ9GMcG+35hHxavv22eDjeseTOryGu3vprSZs=";
+            sha256 = "sha256-JvKIfTDENe33aiEEskUPG0+J4ZDLPOaON+MWdq8Xvr0=";
           };
           # mesonBuildType = "debug";
           # dontStrip = true;
@@ -26,7 +26,6 @@
           #   "-Ddebug=true"
           # ];
         }))
-        protobufc
       ];
       nativeBuildInputs = with pkgs; [ pkg-config rustPlatform.bindgenHook ];
       inherit (import gitignore { inherit (pkgs) lib; }) gitignoreSource;
