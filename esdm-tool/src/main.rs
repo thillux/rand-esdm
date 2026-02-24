@@ -1,16 +1,17 @@
-use rand_core::TryRngCore;
+use rand_core::TryRng;
 use std::{
     io::{Read, Write},
-    process::{Child, Command, ExitCode, Stdio},
+    process::{Child, Command, ExitCode},
     sync::mpsc::Sender,
     time::{Duration, Instant},
 };
 
-use clap::{Args, Parser, Subcommand, arg};
+use clap::{Args, Parser, Subcommand};
 use rand_esdm::{
     EsdmNotification, EsdmRng, esdm_add_entropy, esdm_crng_reseed, esdm_get_entropy_count,
-    esdm_get_entropy_level, esdm_is_fully_seeded, esdm_rng_fini, esdm_rng_fini_priv, esdm_rng_init,
-    esdm_rng_init_checked, esdm_rng_init_priv_checked, esdm_status_str,
+    esdm_get_entropy_level, esdm_is_fully_seeded, esdm_jent_status_str, esdm_rng_fini,
+    esdm_rng_fini_priv, esdm_rng_init, esdm_rng_init_checked, esdm_rng_init_priv_checked,
+    esdm_status_str,
 };
 
 #[derive(Debug, Args)]
@@ -47,6 +48,7 @@ struct WriteToAuxPoolArg {
 enum ToolCommand {
     IsFullySeeded,
     Status,
+    JentStatus,
     EntropyLevel,
     EntropyCount,
     CrngReseed,
@@ -88,39 +90,34 @@ fn handle_status() -> ExitCode {
     ExitCode::SUCCESS
 }
 
+fn handle_jent_status() -> ExitCode {
+    if !esdm_rng_init() {
+        println!("Cannot init ESDM connection. Exiting!");
+        return ExitCode::FAILURE;
+    }
+
+    if let Ok(status) = esdm_jent_status_str() {
+        print!("{status}");
+    } else {
+        println!("Cannot get ESDM jent status string. Exiting!");
+        esdm_rng_fini();
+        return ExitCode::FAILURE;
+    }
+
+    esdm_rng_fini();
+
+    ExitCode::SUCCESS
+}
+
 fn wait_until_seeded(arg: &WaitUntilSeededArg) -> ExitCode {
     let mut try_counter = arg.tries;
 
     while try_counter > 0 {
-        /*
-         * reuse, if SEGV on startup is resolved
-         */
-        // if let Some(status) = esdm_is_fully_seeded() {
-        //     if status {
-        //         println!("ESDM is fully seeded!");
-        //         return ExitCode::SUCCESS;
-        //     }
-        // }
-
-        match std::env::current_exe() {
-            Ok(exe_path) => {
-                if let Ok(status) = std::process::Command::new(exe_path)
-                    .stdin(Stdio::null())
-                    .stdout(Stdio::null())
-                    .env_clear()
-                    .arg("is-fully-seeded")
-                    .status()
-                {
-                    if status.success() {
-                        println!("ESDM is fully seeded!");
-                        return ExitCode::SUCCESS;
-                    }
-                }
-            }
-            Err(e) => {
-                println!("failed to get current exe path: {e}");
-                return ExitCode::FAILURE;
-            }
+        if let Some(status) = esdm_is_fully_seeded()
+            && status
+        {
+            println!("ESDM is fully seeded!");
+            return ExitCode::SUCCESS;
         }
 
         println!("ESDM is still not fully seeded! Retry in 1s.");
@@ -197,11 +194,11 @@ fn write_to_aux_pool(arg: &WriteToAuxPoolArg) -> ExitCode {
 }
 
 fn is_fully_seeded() -> ExitCode {
-    if let Some(status) = esdm_is_fully_seeded() {
-        if status {
-            println!("ESDM is fully seeded!");
-            return ExitCode::SUCCESS;
-        }
+    if let Some(status) = esdm_is_fully_seeded()
+        && status
+    {
+        println!("ESDM is fully seeded!");
+        return ExitCode::SUCCESS;
     }
 
     println!("ESDM is not fully seeded!");
@@ -341,7 +338,7 @@ fn stress_one_core(tx: &mut Sender<String>) {
         mean_duration = alpha * duration.as_secs_f64() + (1.0 - alpha) * mean_duration;
         i += 1;
 
-        if i % 20000 == 0 {
+        if i.is_multiple_of(20000) {
             let _ = tx.send(format!("mean duration: {duration:?}"));
         }
     }
@@ -445,6 +442,7 @@ fn main() -> ExitCode {
     match args.command {
         ToolCommand::IsFullySeeded => is_fully_seeded(),
         ToolCommand::Status => handle_status(),
+        ToolCommand::JentStatus => handle_jent_status(),
         ToolCommand::WaitUntilSeeded(arg) => wait_until_seeded(&arg),
         ToolCommand::GetRandom(arg) => get_random(&arg),
         ToolCommand::EntropyLevel => get_entropy_level(),

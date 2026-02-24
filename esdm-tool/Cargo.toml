@@ -14,12 +14,12 @@ readme = false
 default = []
 
 [dependencies]
-clap = { version = "4.5.35", features = ["derive"] }
-hex = "0.4"
-rand_core = "0.9.3"
-cute = "0.3.0"
+clap = { workspace = true }
+hex = { workspace = true }
+rand_core = { workspace = true }
+cute = { workspace = true }
 rand-esdm = { workspace = true }
-getrandom = "0.3.2"
+getrandom = { workspace = true }
 
 [lints]
 workspace = true

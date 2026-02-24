@@ -22,6 +22,7 @@ fn main() {
         .allowlist_function("esdm_rpcc_rnd_reseed_crng")
         .allowlist_function("esdm_rpcc_set_max_online_nodes")
         .allowlist_function("esdm_rpcc_status")
+        .allowlist_function("esdm_rpcc_jent_status")
         .allowlist_function("esdm_rpcc_write_data")
         .allowlist_function("esdm_rpcc_get_write_wakeup_thresh")
         .generate()

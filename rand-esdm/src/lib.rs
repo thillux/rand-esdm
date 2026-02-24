@@ -1,5 +1,5 @@
 use libc::ETIMEDOUT;
-use rand_core::TryRngCore;
+use rand_core::TryRng;
 use regex::Regex;
 use std::ffi::{CString, c_char};
 use std::mem::MaybeUninit;
@@ -133,7 +133,7 @@ impl Drop for EsdmRng {
 /*
  * rand_core trait implementations
  */
-impl TryRngCore for EsdmRng {
+impl TryRng for EsdmRng {
     type Error = std::io::Error;
 
     fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
@@ -267,6 +267,30 @@ pub fn esdm_write_wakeup_thresh() -> Result<u32, Error> {
     Err(Error::other("ESDM error write wakeup thresh"))
 }
 
+pub fn esdm_jent_status_str() -> Result<String, Error> {
+    for _ in 0..ESDM_RETRY_COUNT {
+        let mut status_bytes = vec![0; 8192];
+
+        let ret = unsafe {
+            esdm::esdm_rpcc_jent_status(
+                status_bytes.as_mut_ptr().cast::<c_char>(),
+                status_bytes.len(),
+            )
+        };
+        if ret == 0 {
+            for i in 0..status_bytes.len() {
+                if status_bytes[i] == 0u8 {
+                    status_bytes.resize(i + 1, 0);
+                    break;
+                }
+            }
+            let str = CString::from_vec_with_nul(status_bytes).unwrap();
+            return Ok(str.into_string().unwrap());
+        }
+    }
+    Err(Error::other("ESDM error jent status"))
+}
+
 pub fn esdm_status_str() -> Result<String, Error> {
     for _ in 0..ESDM_RETRY_COUNT {
         let mut status_bytes = vec![0; 8192];
@@ -287,7 +311,7 @@ pub fn esdm_status_str() -> Result<String, Error> {
             return Ok(str.into_string().unwrap());
         }
     }
-    Err(Error::other("ESDM error clear pool"))
+    Err(Error::other("ESDM error status"))
 }
 
 #[must_use]
@@ -359,7 +383,7 @@ impl EsdmNotification {
 
     pub fn wait_for_entropy_needed_timeout(&mut self, dur: Duration) -> Result<u32, Error> {
         let mut ts: libc::timespec = unsafe { MaybeUninit::zeroed().assume_init() };
-        if unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) } != 0 {
+        if unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &raw mut ts) } != 0 {
             return Err(Error::other("get entropy clock failed"));
         }
 

@@ -10,11 +10,8 @@ version.workspace = true
 authors.workspace = true
 
 [build-dependencies]
-pkg-config = "0.3.32"
-
-[build-dependencies.bindgen]
-features = ["runtime"]
-version = "0.71.1"
+pkg-config = { workspace = true }
+bindgen = { workspace = true, features = ["runtime"] }
 
 [lints]
 workspace = true

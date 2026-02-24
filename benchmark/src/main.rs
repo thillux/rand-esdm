@@ -1,5 +1,6 @@
-use rand_chacha::ChaCha20Rng;
-use rand_core::{OsRng, RngCore, SeedableRng, TryRngCore};
+use rand_core::{TryRng, UnwrapErr};
+use rand::{Rng, SeedableRng};
+use rand::rngs::{SysRng, ChaCha20Rng};
 use rand_esdm::{EsdmRng, EsdmRngType};
 use rand_xoshiro::Xoshiro256PlusPlus;
 
@@ -53,19 +54,19 @@ impl Benchmark for BenchmarkEsdm {
 }
 
 /*
- * OsRng
+ * SysRng
  */
-struct BenchmarkOsRng {}
+struct BenchmarkSysRng {}
 
-impl Default for BenchmarkOsRng {
+impl Default for BenchmarkSysRng {
     fn default() -> Self {
-        BenchmarkOsRng {}
+        BenchmarkSysRng {}
     }
 }
 
-impl Benchmark for BenchmarkOsRng {
+impl Benchmark for BenchmarkSysRng {
     fn fill_bytes(&mut self, buf: &mut [u8]) {
-        OsRng::default().try_fill_bytes(buf).unwrap();
+        SysRng::default().try_fill_bytes(buf).unwrap();
     }
 }
 
@@ -79,7 +80,7 @@ struct BenchmarkChaCha20 {
 impl Default for BenchmarkChaCha20 {
     fn default() -> Self {
         BenchmarkChaCha20 {
-            rng: ChaCha20Rng::from_os_rng(),
+            rng: ChaCha20Rng::from_rng(&mut UnwrapErr(SysRng::default())),
         }
     }
 }
@@ -100,7 +101,7 @@ struct BenchmarkXoshiro256PlusPlus {
 impl Default for BenchmarkXoshiro256PlusPlus {
     fn default() -> Self {
         BenchmarkXoshiro256PlusPlus {
-            rng: Xoshiro256PlusPlus::from_os_rng(),
+            rng: Xoshiro256PlusPlus::from_rng(&mut UnwrapErr(SysRng::default())),
         }
     }
 }
@@ -118,13 +119,13 @@ fn main() {
 
     println!();
 
-    println!("getrandom/OsRng:");
-    let mut rng_os = BenchmarkOsRng::default();
+    println!("getrandom/SysRng:");
+    let mut rng_os = BenchmarkSysRng::default();
     benchmark_rng(&mut rng_os);
 
     println!();
 
-    println!("rand_chacha (ChaCha20):");
+    println!("ChaCha20Rng:");
     let mut rng_chacha = BenchmarkChaCha20::default();
     benchmark_rng(&mut rng_chacha);
 
