@@ -9,7 +9,7 @@ default-members = ["esdm-tool"]
 resolver = "2"
 
 [workspace.package]
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Markus Theil <theil.markus@gmail.com>"]
 edition = "2024"
 
@@ -17,15 +17,15 @@ edition = "2024"
 bindgen = { version = "0.72.1" }
 clap = { version = "4.5.60", features = ["derive"] }
 cute = { version = "0.3.0" }
-esdm-sys = { path = "esdm-sys", version = "0.3.0" }
+esdm-sys = { path = "esdm-sys", version = "0.3.1" }
 getrandom = { version = "0.4.1" }
 hex = { version = "0.4" }
-libc = { version = "0.2.182" }
+libc = { version = ">=0.2.180" }
 pkg-config = { version = "0.3.32" }
 rand = { version = "0.10.0" }
 rand_core = { version = "0.10.0" }
 rand_xoshiro = { version = "0.8.0" }
-rand-esdm = { path = "rand-esdm", version = "0.3.0" }
+rand-esdm = { path = "rand-esdm", version = "0.3.1" }
 regex = { version = "1.12.3" }
 
 [workspace.lints.clippy]

@@ -205,7 +205,7 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
 name = "esdm-benchmark"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "cute",
  "hex",
@@ -217,7 +217,7 @@ dependencies = [
 
 [[package]]
 name = "esdm-sys"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "bindgen",
  "pkg-config",
@@ -225,7 +225,7 @@ dependencies = [
 
 [[package]]
 name = "esdm-tool"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "clap",
  "cute",
@@ -436,7 +436,7 @@ dependencies = [
 
 [[package]]
 name = "rand-esdm"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "esdm-sys",
  "libc",
