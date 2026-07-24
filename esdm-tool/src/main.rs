@@ -158,11 +158,19 @@ fn get_entropy_level() -> ExitCode {
 
 fn get_entropy_count() -> ExitCode {
     esdm_rng_init_checked();
-    let cnt = esdm_get_entropy_count().unwrap();
-    println!("Entropy count: {cnt}");
+    let ret = match esdm_get_entropy_count() {
+        Ok(cnt) => {
+            println!("Entropy count: {cnt}");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("Cannot get entropy count: {e}");
+            ExitCode::FAILURE
+        }
+    };
     esdm_rng_fini();
 
-    ExitCode::SUCCESS
+    ret
 }
 
 fn write_to_aux_pool(arg: &WriteToAuxPoolArg) -> ExitCode {
@@ -351,7 +359,7 @@ fn stress_delay() -> ExitCode {
 fn measure_speed() -> ExitCode {
     use std::time::Instant;
 
-    let sizes = cute::c![1 << x, for x in 0..12];
+    let sizes: Vec<usize> = (0..12).map(|x| 1 << x).collect();
 
     for m in ["Fully Seeded", "Prediction Resistant"] {
         let mut rng = if m == "Fully Seeded" {

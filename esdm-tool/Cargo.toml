@@ -17,7 +17,6 @@ default = []
 clap = { workspace = true }
 hex = { workspace = true }
 rand_core = { workspace = true }
-cute = { workspace = true }
 rand-esdm = { workspace = true }
 getrandom = { workspace = true }
 

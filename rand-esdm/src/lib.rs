@@ -1,8 +1,8 @@
 use libc::ETIMEDOUT;
 use rand_core::TryRng;
-use regex::Regex;
-use std::ffi::{CString, c_char};
+use std::ffi::c_char;
 use std::mem::MaybeUninit;
+use std::os::raw::c_int;
 
 use std::io::Error;
 use std::sync::Mutex;
@@ -17,6 +17,17 @@ use esdm_sys::esdm_aux;
 
 // how often to retry RPC calls before returning an error
 const ESDM_RETRY_COUNT: u32 = 5;
+
+/// retries an ESDM RPC call up to [`ESDM_RETRY_COUNT`] times until it reports success
+fn retry_rpc(mut rpc: impl FnMut() -> c_int, err_msg: &'static str) -> Result<(), Error> {
+    for _ in 0..ESDM_RETRY_COUNT {
+        if rpc() == 0 {
+            return Ok(());
+        }
+    }
+
+    Err(Error::other(err_msg))
+}
 
 static LIB_MUTEX_UNPRIV: Mutex<u32> = Mutex::new(0u32);
 static LIB_MUTEX_PRIV: Mutex<u32> = Mutex::new(0u32);
@@ -34,7 +45,7 @@ pub struct EsdmRng {
     rng_type: EsdmRngType,
 }
 
-/// Returns if the client connection to ESDM was initialized succesfully
+/// Returns if the client connection to ESDM was initialized successfully
 /// Only needed to call once globally before first usage of ESDM
 #[must_use]
 pub fn esdm_rng_init() -> bool {
@@ -60,7 +71,7 @@ pub fn esdm_rng_init_checked() {
     assert!(success);
 }
 
-/// Call in order to free ressources needed for ESDM client connection
+/// Call in order to free resources needed for ESDM client connection
 pub fn esdm_rng_fini() {
     let mut guard = LIB_MUTEX_UNPRIV.lock().unwrap();
     assert_ne!(*guard, 0);
@@ -104,7 +115,7 @@ pub fn esdm_rng_init_priv_checked() {
     assert!(success);
 }
 
-/// Call in order to free ressources needed for ESDM client connection (privileged mode)
+/// Call in order to free resources needed for ESDM client connection (privileged mode)
 pub fn esdm_rng_fini_priv() {
     let mut guard = LIB_MUTEX_PRIV.lock().unwrap();
     assert_ne!(*guard, 0);
@@ -169,194 +180,137 @@ impl TryRng for EsdmRng {
 /*
  * ESDM specific or privileged functions
  */
-/// returns true, if write of data was a success
+/// writes data into the ESDM auxiliary pool without crediting entropy for it
 pub fn esdm_write_data(data: &[u8]) -> Result<(), Error> {
-    for _ in 0..ESDM_RETRY_COUNT {
-        let ret = unsafe { esdm::esdm_rpcc_write_data(data.as_ptr(), data.len()) };
-        if ret == 0 {
-            return Ok(());
-        }
-    }
-
-    Err(Error::other("ESDM error write"))
+    retry_rpc(
+        || unsafe { esdm::esdm_rpcc_write_data(data.as_ptr(), data.len()) },
+        "ESDM error write",
+    )
 }
 
 pub fn esdm_crng_reseed() -> Result<(), Error> {
-    for _ in 0..ESDM_RETRY_COUNT {
-        let ret = unsafe { esdm::esdm_rpcc_rnd_reseed_crng() };
-        if ret == 0 {
-            return Ok(());
-        }
-    }
+    retry_rpc(
+        || unsafe { esdm::esdm_rpcc_rnd_reseed_crng() },
+        "ESDM error reseed crng",
+    )
+}
 
-    Err(Error::other("ESDM error reseed crng"))
+#[deprecated(since = "0.4.0", note = "use `esdm_crng_reseed` instead")]
+pub fn esdm_reseed_crng() -> Result<(), Error> {
+    esdm_crng_reseed()
 }
 
 pub fn esdm_get_entropy_count() -> Result<u32, Error> {
-    for _ in 0..ESDM_RETRY_COUNT {
-        let ent_cnt: u32 = 0;
-        let ret =
-            unsafe { esdm::esdm_rpcc_rnd_get_ent_cnt(std::ptr::addr_of!(ent_cnt).cast_mut()) };
-        if ret == 0 {
-            return Ok(ent_cnt);
-        }
-    }
-    Err(Error::other("ESDM error get entropy"))
+    let mut ent_cnt: u32 = 0;
+    retry_rpc(
+        || unsafe { esdm::esdm_rpcc_rnd_get_ent_cnt(&raw mut ent_cnt) },
+        "ESDM error get entropy",
+    )?;
+
+    Ok(ent_cnt)
 }
 
 pub fn esdm_add_entropy(entropy_bytes: &[u8], entropy_count: u32) -> Result<(), Error> {
-    for _ in 0..ESDM_RETRY_COUNT {
-        let ret = unsafe {
+    retry_rpc(
+        || unsafe {
             esdm::esdm_rpcc_rnd_add_entropy(
                 entropy_bytes.as_ptr(),
                 entropy_bytes.len(),
                 entropy_count,
             )
-        };
-        if ret == 0 {
-            return Ok(());
-        }
-    }
-
-    Err(Error::other("ESDM error add entropy"))
+        },
+        "ESDM error add entropy",
+    )
 }
 
 pub fn esdm_add_to_entropy_count(entropy_increment: u32) -> Result<(), Error> {
-    for _ in 0..ESDM_RETRY_COUNT {
-        let ret = unsafe { esdm::esdm_rpcc_rnd_add_to_ent_cnt(entropy_increment) };
-        if ret == 0 {
-            return Ok(());
-        }
-    }
-    Err(Error::other("ESDM error add entropy count"))
-}
-
-pub fn esdm_reseed_crng() -> Result<(), Error> {
-    for _ in 0..ESDM_RETRY_COUNT {
-        let ret = unsafe { esdm::esdm_rpcc_rnd_reseed_crng() };
-        if ret == 0 {
-            return Ok(());
-        }
-    }
-    Err(Error::other("ESDM error reseed crng"))
+    retry_rpc(
+        || unsafe { esdm::esdm_rpcc_rnd_add_to_ent_cnt(entropy_increment) },
+        "ESDM error add entropy count",
+    )
 }
 
 pub fn esdm_clear_pool() -> Result<(), Error> {
-    for _ in 0..ESDM_RETRY_COUNT {
-        let ret = unsafe { esdm::esdm_rpcc_rnd_clear_pool() };
-        if ret == 0 {
-            return Ok(());
-        }
-    }
-    Err(Error::other("ESDM error clear pool"))
+    retry_rpc(
+        || unsafe { esdm::esdm_rpcc_rnd_clear_pool() },
+        "ESDM error clear pool",
+    )
 }
 
 pub fn esdm_write_wakeup_thresh() -> Result<u32, Error> {
-    let write_wakeup_thresh: u32 = 0;
-    for _ in 0..ESDM_RETRY_COUNT {
-        let ret = unsafe {
-            esdm::esdm_rpcc_get_write_wakeup_thresh(
-                std::ptr::addr_of!(write_wakeup_thresh).cast_mut(),
-            )
-        };
-        if ret == 0 {
-            return Ok(write_wakeup_thresh);
-        }
-    }
+    let mut write_wakeup_thresh: u32 = 0;
+    retry_rpc(
+        || unsafe { esdm::esdm_rpcc_get_write_wakeup_thresh(&raw mut write_wakeup_thresh) },
+        "ESDM error write wakeup thresh",
+    )?;
 
-    Err(Error::other("ESDM error write wakeup thresh"))
+    Ok(write_wakeup_thresh)
+}
+
+/// fetches a NUL-terminated status string via the given RPC call
+fn fetch_status_str(
+    rpc_status: unsafe extern "C" fn(*mut c_char, usize) -> c_int,
+    err_msg: &'static str,
+) -> Result<String, Error> {
+    let mut status_bytes = vec![0u8; 8192];
+    retry_rpc(
+        || unsafe { rpc_status(status_bytes.as_mut_ptr().cast::<c_char>(), status_bytes.len()) },
+        err_msg,
+    )?;
+
+    let nul_pos = status_bytes
+        .iter()
+        .position(|&b| b == 0)
+        .ok_or_else(|| Error::other("ESDM status string is not NUL-terminated"))?;
+    status_bytes.truncate(nul_pos);
+    String::from_utf8(status_bytes).map_err(|_| Error::other("ESDM status string is not UTF-8"))
 }
 
 pub fn esdm_jent_status_str() -> Result<String, Error> {
-    for _ in 0..ESDM_RETRY_COUNT {
-        let mut status_bytes = vec![0; 8192];
-
-        let ret = unsafe {
-            esdm::esdm_rpcc_jent_status(
-                status_bytes.as_mut_ptr().cast::<c_char>(),
-                status_bytes.len(),
-            )
-        };
-        if ret == 0 {
-            for i in 0..status_bytes.len() {
-                if status_bytes[i] == 0u8 {
-                    status_bytes.resize(i + 1, 0);
-                    break;
-                }
-            }
-            let str = CString::from_vec_with_nul(status_bytes).unwrap();
-            return Ok(str.into_string().unwrap());
-        }
-    }
-    Err(Error::other("ESDM error jent status"))
+    fetch_status_str(esdm::esdm_rpcc_jent_status, "ESDM error jent status")
 }
 
 pub fn esdm_status_str() -> Result<String, Error> {
-    for _ in 0..ESDM_RETRY_COUNT {
-        let mut status_bytes = vec![0; 8192];
-        let ret = unsafe {
-            esdm::esdm_rpcc_status(
-                status_bytes.as_mut_ptr().cast::<c_char>(),
-                status_bytes.len(),
-            )
-        };
-        if ret == 0 {
-            for i in 0..status_bytes.len() {
-                if status_bytes[i] == 0u8 {
-                    status_bytes.resize(i + 1, 0);
-                    break;
-                }
-            }
-            let str = CString::from_vec_with_nul(status_bytes).unwrap();
-            return Ok(str.into_string().unwrap());
-        }
+    fetch_status_str(esdm::esdm_rpcc_status, "ESDM error status")
+}
+
+/// initializes an ESDM connection, extracts a value from the status string and
+/// releases the connection again
+fn with_status<T>(parse: impl FnOnce(&str) -> Option<T>) -> Option<T> {
+    if !esdm_rng_init() {
+        return None;
     }
-    Err(Error::other("ESDM error status"))
+
+    let result = esdm_status_str().ok().and_then(|status| parse(&status));
+
+    esdm_rng_fini();
+
+    result
 }
 
 #[must_use]
 pub fn esdm_is_fully_seeded() -> Option<bool> {
-    if !esdm_rng_init() {
-        return None;
-    }
-
-    if let Ok(status) = esdm_status_str() {
+    with_status(|status| {
         if status.contains("ESDM fully seeded: true") {
-            esdm_rng_fini();
-            return Some(true);
+            Some(true)
+        } else if status.contains("ESDM fully seeded: false") {
+            Some(false)
+        } else {
+            None
         }
-        if status.contains("ESDM fully seeded: false") {
-            esdm_rng_fini();
-            return Some(false);
-        }
-    }
-
-    esdm_rng_fini();
-
-    None
+    })
 }
 
 #[must_use]
 pub fn esdm_get_entropy_level() -> Option<u32> {
-    if !esdm_rng_init() {
-        return None;
-    }
-
-    if let Ok(status) = esdm_status_str() {
-        let entropy_level_regex = Regex::new(r"^ESDM entropy level: (?<level>\d+)$").unwrap();
-        for line in status.split('\n') {
-            if let Some(caps) = entropy_level_regex.captures(line) {
-                let level_str = caps.get(1).unwrap().as_str();
-                let level = level_str.parse::<u32>().unwrap();
-                esdm_rng_fini();
-                return Some(level);
-            }
-        }
-    }
-
-    esdm_rng_fini();
-
-    None
+    with_status(|status| {
+        status.lines().find_map(|line| {
+            line.strip_prefix("ESDM entropy level: ")?
+                .trim()
+                .parse::<u32>()
+                .ok()
+        })
+    })
 }
 
 pub struct EsdmNotification {}
@@ -394,11 +348,9 @@ impl EsdmNotification {
 
         ts_esdm.tv_sec += i64::try_from(dur.as_secs()).unwrap();
         ts_esdm.tv_nsec += i64::from(dur.subsec_nanos());
-        ts_esdm.tv_sec += ts.tv_nsec / 1_000_000_000;
+        ts_esdm.tv_sec += ts_esdm.tv_nsec / 1_000_000_000;
         ts_esdm.tv_nsec %= 1_000_000_000;
-        let ret = unsafe {
-            esdm_aux::esdm_aux_timedwait_for_need_entropy(std::ptr::addr_of_mut!(ts_esdm))
-        };
+        let ret = unsafe { esdm_aux::esdm_aux_timedwait_for_need_entropy(&raw mut ts_esdm) };
         if ret == ETIMEDOUT {
             return Err(Error::other("get entropy timed out"));
         }
@@ -500,7 +452,7 @@ mod tests {
         esdm_clear_pool().unwrap();
         assert_eq!(esdm_get_entropy_count().unwrap(), 0);
         esdm_add_to_entropy_count(64 * 8).unwrap();
-        esdm_reseed_crng().unwrap();
+        esdm_crng_reseed().unwrap();
 
         let mut rng = EsdmRng::new(EsdmRngType::FullySeeded);
 

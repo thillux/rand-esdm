@@ -12,7 +12,7 @@ It currently provides the minimal amount of bindings necessary to use ESDM toget
 ### Add rand-esdm to your Cargo.toml
 
 ```toml
-rand-esdm = "0.3.0"
+rand-esdm = "0.4.0"
 ```
 
 ### Generate Random Numbers with rand crate

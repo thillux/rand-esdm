@@ -11,7 +11,7 @@ trait Benchmark {
 fn benchmark_rng(rng: &mut impl Benchmark) {
     use std::time::Instant;
 
-    let sizes = cute::c![1 << x, for x in 0..12];
+    let sizes: Vec<usize> = (0..12).map(|x| 1 << x).collect();
     let iterations = 20000;
 
     for size in &sizes {
@@ -56,17 +56,12 @@ impl Benchmark for BenchmarkEsdm {
 /*
  * SysRng
  */
+#[derive(Default)]
 struct BenchmarkSysRng {}
-
-impl Default for BenchmarkSysRng {
-    fn default() -> Self {
-        BenchmarkSysRng {}
-    }
-}
 
 impl Benchmark for BenchmarkSysRng {
     fn fill_bytes(&mut self, buf: &mut [u8]) {
-        SysRng::default().try_fill_bytes(buf).unwrap();
+        SysRng.try_fill_bytes(buf).unwrap();
     }
 }
 
@@ -80,7 +75,7 @@ struct BenchmarkChaCha20 {
 impl Default for BenchmarkChaCha20 {
     fn default() -> Self {
         BenchmarkChaCha20 {
-            rng: ChaCha20Rng::from_rng(&mut UnwrapErr(SysRng::default())),
+            rng: ChaCha20Rng::from_rng(&mut UnwrapErr(SysRng)),
         }
     }
 }
@@ -101,7 +96,7 @@ struct BenchmarkXoshiro256PlusPlus {
 impl Default for BenchmarkXoshiro256PlusPlus {
     fn default() -> Self {
         BenchmarkXoshiro256PlusPlus {
-            rng: Xoshiro256PlusPlus::from_rng(&mut UnwrapErr(SysRng::default())),
+            rng: Xoshiro256PlusPlus::from_rng(&mut UnwrapErr(SysRng)),
         }
     }
 }

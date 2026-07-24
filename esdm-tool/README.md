@@ -1,6 +1,6 @@
 # ESDM Tool
 
-This crate contains a small helper utility for [ESDM](www.chronox.de/esdm).
+This crate contains a small helper utility for [ESDM](https://www.chronox.de/esdm/).
 
 Use it to:
 

@@ -7,7 +7,7 @@
 
 rustPlatform.buildRustPackage rec {
   pname = "rand-esdm";
-  version = "0.1.5";
+  version = "0.4.0";
 
   src = gitignoreSource ./.;
 

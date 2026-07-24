@@ -17,7 +17,6 @@ privileged_tests = []
 rand_core = { workspace = true }
 libc = { workspace = true }
 esdm-sys = { workspace = true }
-regex = { workspace = true }
 
 [dev-dependencies]
 rand = { workspace = true }

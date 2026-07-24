@@ -40,19 +40,6 @@
                   ];
                 }
               );
-        }).overrideAttrs(prev: {
-          src = fetchFromGitHub {
-            owner = "smuellerDD";
-            repo = "esdm";
-            rev = "master";
-            sha256 = "sha256-lREbeWlu1J6IPe6lgGxqeYRNx615BGDU16o+TLoPOYE=";
-          };
-          # mesonBuildType = "debug";
-          # dontStrip = true;
-          # mesonFlags = prev.mesonFlags ++ [
-          #   "-Dstrip=false"
-          #   "-Ddebug=true"
-          # ];
         }))
       ];
       nativeBuildInputs = with pkgs; [ pkg-config rustPlatform.bindgenHook ];
