@@ -69,6 +69,31 @@ fn test_shared_connection() {
 }
 
 #[test]
+fn test_cloned_connection_outlives_original() {
+    let conn = EsdmConnection::new();
+    let threads: Vec<_> = (0..4)
+        .map(|_| {
+            let conn = conn.clone();
+            std::thread::spawn(move || conn.entropy_count())
+        })
+        .collect();
+    // the clones keep the service alive on their own
+    drop(conn);
+    for t in threads {
+        t.join().unwrap().unwrap();
+    }
+
+    let priv_conn = EsdmPrivConnection::new();
+    let clone = priv_conn.clone();
+    drop(priv_conn);
+    // reaches the server: without root it fails for missing privileges, not
+    // for a missing connection
+    if let Err(e) = clone.clear_pool() {
+        assert_eq!(e.kind(), std::io::ErrorKind::PermissionDenied);
+    }
+}
+
+#[test]
 fn test_fully_seeded_mode() {
     let mut rng = EsdmRng::new(EsdmRngType::FullySeeded);
 

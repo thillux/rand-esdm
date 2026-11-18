@@ -59,7 +59,8 @@ fn fini_priv() {
 ///
 /// Connections are cheap: the client library connects to the server lazily,
 /// on the first request, and all connections of a process share its
-/// connection pool. They can be shared between threads by reference.
+/// connection pool. They can be shared between threads by reference, or
+/// cloned for threads which outlive the current scope.
 ///
 /// ```
 /// use rand_esdm::EsdmConnection;
@@ -67,6 +68,9 @@ fn fini_priv() {
 /// # fn main() -> std::io::Result<()> {
 /// let conn = EsdmConnection::try_new()?;
 /// println!("auxiliary pool: {} bits", conn.entropy_count()?);
+///
+/// let worker = conn.clone();
+/// std::thread::spawn(move || worker.status()).join().unwrap()?;
 /// # Ok(())
 /// # }
 /// ```
@@ -92,6 +96,16 @@ impl EsdmConnection {
     pub fn try_new() -> Result<Self, Error> {
         init_unpriv()?;
         Ok(Self { _private: () })
+    }
+}
+
+/// takes another reference on the client service
+///
+/// While `self` is alive the service is set up, so the library only counts
+/// the reference, which cannot fail.
+impl Clone for EsdmConnection {
+    fn clone(&self) -> Self {
+        Self::try_new().expect("taking another reference on the initialized ESDM service failed")
     }
 }
 
@@ -140,6 +154,15 @@ impl EsdmPrivConnection {
     pub fn try_new() -> Result<Self, Error> {
         init_priv()?;
         Ok(Self { _private: () })
+    }
+}
+
+/// takes another reference on the privileged client service, see the
+/// `Clone` implementation of [`EsdmConnection`]
+impl Clone for EsdmPrivConnection {
+    fn clone(&self) -> Self {
+        Self::try_new()
+            .expect("taking another reference on the initialized privileged ESDM service failed")
     }
 }
 

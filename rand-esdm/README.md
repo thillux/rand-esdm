@@ -104,7 +104,7 @@ fn main() -> std::io::Result<()> {
 
 Connections are cheap: the client library connects lazily and all
 connections of a process share one connection pool. All types can be used
-from any thread, connections can be shared by reference.
+from any thread, connections can be shared by reference or cloned.
 
 ## Examples
 
