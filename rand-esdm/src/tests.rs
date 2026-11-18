@@ -77,6 +77,14 @@ fn test_status_json() {
         serde_json::from_str(&esdm_drng_status_pr_json_str().unwrap()).unwrap();
     assert!(drng.is_object());
 
+    let status = esdm_status().unwrap();
+    assert_ne!(status.entropy_sources.len(), 0);
+    assert_eq!(
+        esdm_drng_status_pr().unwrap().drng_type,
+        EsdmDrngType::PredictionResistance
+    );
+    esdm_drng_status(0).unwrap();
+
     esdm_rng_fini();
 
     assert!(esdm_is_fully_seeded().is_some());

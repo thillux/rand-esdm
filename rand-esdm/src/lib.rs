@@ -7,6 +7,7 @@ mod rng;
 mod rpc;
 mod selftest;
 mod status;
+mod status_json;
 
 #[cfg(test)]
 mod tests;
@@ -25,6 +26,11 @@ pub use notification::EsdmNotification;
 pub use rng::{EsdmRng, EsdmRngType};
 pub use selftest::{EsdmSelftestResult, EsdmSelftestState, esdm_selftest};
 pub use status::{
-    esdm_drng_status_json_str, esdm_drng_status_pr_json_str, esdm_get_entropy_level,
-    esdm_is_fully_seeded, esdm_jent_status_str, esdm_status_json_str, esdm_status_str,
+    esdm_drng_status, esdm_drng_status_json_str, esdm_drng_status_pr, esdm_drng_status_pr_json_str,
+    esdm_get_entropy_level, esdm_is_fully_seeded, esdm_jent_status_str, esdm_status,
+    esdm_status_json_str, esdm_status_str,
+};
+pub use status_json::{
+    EsdmDrngStatus, EsdmDrngType, EsdmEntropySourceStatus, EsdmPeriodicSelftestStatus,
+    EsdmReseedWorkerStatus, EsdmStatus,
 };

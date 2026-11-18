@@ -27,7 +27,7 @@ jobs:
     - name: Install build dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y meson libprotobuf-c-dev libfuse3-dev libjson-c-dev
+        sudo apt-get install -y meson libprotobuf-c-dev libfuse3-dev libjson-c-dev uidmap
     - name: Install Jitter RNG
       run: |
         set -euo pipefail
@@ -54,7 +54,7 @@ jobs:
     - name: Check formatting
       run: cargo fmt --all --check
     - name: Lint
-      run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
     - name: Build
       run: cargo build --workspace --all-targets --locked --verbose
     - name: Start ESDM server
@@ -64,3 +64,12 @@ jobs:
         cargo run --locked -p esdm-tool -- wait-until-seeded 60
     - name: Run tests
       run: cargo test --workspace --locked --verbose
+    - name: Run sandboxed JSON status tests
+      run: |
+        # every case runs an esdm-server of its own in unprivileged user,
+        # mount, IPC and PID namespaces, see rand-esdm/tests/status_sandbox.rs
+        sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+        if ! grep -q "^$(id -un):" /etc/subuid; then
+          sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 "$(id -un)"
+        fi
+        cargo test -p rand-esdm --features sandbox_tests --test status_sandbox --locked

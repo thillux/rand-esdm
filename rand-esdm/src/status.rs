@@ -2,12 +2,13 @@
 
 use libc::EMSGSIZE;
 use std::ffi::{c_char, c_int};
-use std::io::Error;
+use std::io::{Error, ErrorKind};
 
 use esdm_sys::esdm;
 
 use crate::connection::{esdm_rng_fini, esdm_rng_init};
 use crate::rpc::{ESDM_RETRY_COUNT, rpc_error};
+use crate::status_json::{EsdmDrngStatus, EsdmStatus};
 
 // largest status document the ESDM RPC protocol is able to transport
 const ESDM_STATUS_MAX_LEN: usize = 65536;
@@ -107,17 +108,41 @@ pub fn esdm_drng_status_pr_json_str() -> Result<String, Error> {
     )
 }
 
-/// initializes an ESDM connection, extracts a value from the JSON status
-/// document and releases the connection again
-fn with_status_json<T>(parse: impl FnOnce(&serde_json::Value) -> Option<T>) -> Option<T> {
+/// parses a JSON status document into its typed model
+fn parse_status_json<T: serde::de::DeserializeOwned>(doc: &str) -> Result<T, Error> {
+    serde_json::from_str(doc).map_err(|e| Error::new(ErrorKind::InvalidData, e))
+}
+
+/// status of the ESDM (ESDM >= 1.2.4)
+///
+/// Typed form of [`esdm_status_json_str`]. Needs an initialized connection,
+/// see [`crate::esdm_rng_init`].
+pub fn esdm_status() -> Result<EsdmStatus, Error> {
+    parse_status_json(&esdm_status_json_str()?)
+}
+
+/// status of the DRNG instance serving the given node (ESDM >= 1.2.4)
+///
+/// Typed form of [`esdm_drng_status_json_str`].
+pub fn esdm_drng_status(node: u32) -> Result<EsdmDrngStatus, Error> {
+    parse_status_json(&esdm_drng_status_json_str(node)?)
+}
+
+/// status of the prediction resistant DRNG instance (ESDM >= 1.2.4)
+///
+/// Typed form of [`esdm_drng_status_pr_json_str`].
+pub fn esdm_drng_status_pr() -> Result<EsdmDrngStatus, Error> {
+    parse_status_json(&esdm_drng_status_pr_json_str()?)
+}
+
+/// initializes an ESDM connection, fetches the status and releases the
+/// connection again
+fn with_status<T>(extract: impl FnOnce(&EsdmStatus) -> T) -> Option<T> {
     if !esdm_rng_init() {
         return None;
     }
 
-    let result = esdm_status_json_str()
-        .ok()
-        .and_then(|status| serde_json::from_str::<serde_json::Value>(&status).ok())
-        .and_then(|status| parse(&status));
+    let result = esdm_status().ok().map(|status| extract(&status));
 
     esdm_rng_fini();
 
@@ -126,12 +151,12 @@ fn with_status_json<T>(parse: impl FnOnce(&serde_json::Value) -> Option<T>) -> O
 
 #[must_use]
 pub fn esdm_is_fully_seeded() -> Option<bool> {
-    with_status_json(|status| status.get("fully_seeded")?.as_bool())
+    with_status(|status| status.fully_seeded)
 }
 
 #[must_use]
 pub fn esdm_get_entropy_level() -> Option<u32> {
-    with_status_json(|status| u32::try_from(status.get("entropy_level_bits")?.as_u64()?).ok())
+    with_status(|status| status.entropy_level_bits)
 }
 
 #[cfg(test)]

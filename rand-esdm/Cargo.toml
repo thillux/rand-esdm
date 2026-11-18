@@ -13,15 +13,24 @@ authors.workspace = true
 [features]
 default = []
 privileged_tests = []
+# JSON status tests against sandboxed ESDM servers, see tests/status_sandbox.rs
+sandbox_tests = []
 
 [dependencies]
 rand_core = { workspace = true }
 libc = { workspace = true }
 esdm-sys = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
+getrandom = { workspace = true }
 rand = { workspace = true }
+
+[[test]]
+name = "status_sandbox"
+harness = false
+required-features = ["sandbox_tests"]
 
 [lints]
 workspace = true

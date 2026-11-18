@@ -8,10 +8,13 @@ use esdm_sys::esdm;
 use crate::rpc::rpc_error;
 
 /// state of a group of ESDM self tests
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum EsdmSelftestState {
     Undone,
     Passed,
+    /// also covers states unknown to this crate
+    #[serde(other)]
     Failed,
 }
 
