@@ -173,12 +173,21 @@ fn test_privileged_interface() {
     priv_conn
         .add_entropy(&buf, u32::try_from(buf.len() * 8).unwrap())
         .unwrap();
-    assert!(conn.entropy_count().unwrap() >= 32 * 8);
+    // The credited entropy cannot be read back reliably: adding it starts a
+    // reseed right away if any DRNG wants one (the prediction resistant DRNG
+    // always does once used), and prediction resistant requests of parallel
+    // tests drain the auxiliary pool as well.
+    conn.entropy_count().unwrap();
 
     let result = priv_conn.selftest().unwrap();
     println!("selftest: {result:?}");
-    assert!(result.all_passed());
+    // the known answer tests of the hash and the DRNG pass on every server,
+    // the entropy source tests depend on the hardware
     assert_eq!(result.crypto_state, EsdmSelftestState::Passed);
+    if result.es_failures > 0 {
+        assert_eq!(result.es_state, EsdmSelftestState::Failed);
+        assert!(!result.all_passed());
+    }
 }
 
 // need to be root to run this test: the server creates its need-entropy
