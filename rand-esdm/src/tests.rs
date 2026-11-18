@@ -158,3 +158,59 @@ fn test_add_entropy_rejects_overcrediting() {
     let err = esdm_add_entropy(&[], 1).unwrap_err();
     assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
 }
+
+#[test]
+fn test_set_es_rate_rejects_nul() {
+    // checked before talking to the server, so no privileges are needed
+    let err = esdm_set_es_rate("jent\0", 0).unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::Other);
+}
+
+#[test]
+fn test_next_u32_and_odd_sizes() {
+    let mut rng = EsdmRng::try_new(EsdmRngType::PredictionResistant).unwrap();
+    let _: u32 = rng.try_next_u32().unwrap();
+
+    // nothing to fetch, must not fail
+    rng.try_fill_bytes(&mut []).unwrap();
+
+    for len in [1, 7, 31, 4097] {
+        let mut buf = vec![0u8; len];
+        rng.try_fill_bytes(&mut buf).unwrap();
+    }
+}
+
+#[test]
+fn test_nested_init_fini() {
+    // the connection is reference counted, an inner fini must keep it alive
+    esdm_rng_init_checked();
+    esdm_rng_init_checked();
+    esdm_rng_fini();
+    assert!(esdm_status_json_str().is_ok());
+    esdm_rng_fini();
+}
+
+#[test]
+fn test_other_status_reports() {
+    esdm_rng_init_checked();
+
+    // may be empty if the server lacks the Jitter RNG entropy source
+    println!("{}", esdm_jent_status_str().unwrap());
+
+    let drng: serde_json::Value =
+        serde_json::from_str(&esdm_drng_status_json_str(0).unwrap()).unwrap();
+    assert!(drng.is_object());
+
+    esdm_rng_fini();
+}
+
+#[test]
+fn test_unprivileged_entropy_interface() {
+    esdm_rng_init_checked();
+
+    // works without privileges, the data is mixed in but not credited
+    esdm_write_data(&[0x5a; 64]).unwrap();
+    let _ = esdm_get_entropy_count().unwrap();
+
+    esdm_rng_fini();
+}

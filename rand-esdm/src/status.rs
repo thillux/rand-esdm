@@ -133,3 +133,110 @@ pub fn esdm_is_fully_seeded() -> Option<bool> {
 pub fn esdm_get_entropy_level() -> Option<u32> {
     with_status_json(|status| u32::try_from(status.get("entropy_level_bits")?.as_u64()?).ok())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// copies `content` to the start of the buffer handed out by `fetch_status_str`
+    fn write_buf(buf: *mut c_char, len: usize, content: &[u8]) {
+        assert!(content.len() <= len);
+        // SAFETY: `fetch_status_str` hands out a buffer writable for `len`
+        // bytes and `content` fits into it, as asserted above.
+        unsafe { std::ptr::copy_nonoverlapping(content.as_ptr(), buf.cast::<u8>(), content.len()) };
+    }
+
+    #[test]
+    fn returns_string_up_to_nul() {
+        let status = fetch_status_str(
+            |buf, len| {
+                write_buf(buf, len, b"hello\0garbage");
+                0
+            },
+            "msg",
+        )
+        .unwrap();
+        assert_eq!(status, "hello");
+    }
+
+    #[test]
+    fn grows_buffer_on_emsgsize() {
+        let mut lens = vec![];
+        let status = fetch_status_str(
+            |buf, len| {
+                lens.push(len);
+                if len < ESDM_STATUS_MAX_LEN {
+                    return -EMSGSIZE;
+                }
+                let big = vec![b'x'; 10_000];
+                write_buf(buf, len, &big);
+                0
+            },
+            "msg",
+        )
+        .unwrap();
+        assert_eq!(lens, [8192, ESDM_STATUS_MAX_LEN]);
+        assert_eq!(status.len(), 10_000);
+    }
+
+    #[test]
+    fn emsgsize_at_max_len_is_an_error() {
+        let mut calls = 0;
+        let err = fetch_status_str(
+            |_, _| {
+                calls += 1;
+                -EMSGSIZE
+            },
+            "msg",
+        )
+        .unwrap_err();
+        // one call to grow, then the retry budget is used up
+        assert_eq!(calls, 1 + ESDM_RETRY_COUNT);
+        assert!(err.to_string().starts_with("msg: "));
+    }
+
+    #[test]
+    fn retries_transient_errors() {
+        let mut calls = 0;
+        let status = fetch_status_str(
+            |buf, len| {
+                calls += 1;
+                if calls < ESDM_RETRY_COUNT {
+                    return -libc::EAGAIN;
+                }
+                write_buf(buf, len, b"ok\0");
+                0
+            },
+            "msg",
+        )
+        .unwrap();
+        assert_eq!(status, "ok");
+        assert_eq!(calls, ESDM_RETRY_COUNT);
+    }
+
+    #[test]
+    fn rejects_missing_nul() {
+        let err = fetch_status_str(
+            |buf, len| {
+                write_buf(buf, len, &vec![b'x'; len]);
+                0
+            },
+            "msg",
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("NUL"));
+    }
+
+    #[test]
+    fn rejects_invalid_utf8() {
+        let err = fetch_status_str(
+            |buf, len| {
+                write_buf(buf, len, b"\xff\xfe\0");
+                0
+            },
+            "msg",
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("UTF-8"));
+    }
+}

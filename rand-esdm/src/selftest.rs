@@ -79,3 +79,30 @@ pub fn esdm_selftest() -> Result<(EsdmSelftestResult, bool), Error> {
         Ok((result, false))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use esdm::esdm_rpcc_selftest_state as State;
+
+    #[test]
+    fn state_conversion() {
+        assert_eq!(
+            EsdmSelftestState::from(State::esdm_rpcc_selftest_undone),
+            EsdmSelftestState::Undone
+        );
+        assert_eq!(
+            EsdmSelftestState::from(State::esdm_rpcc_selftest_passed),
+            EsdmSelftestState::Passed
+        );
+        assert_eq!(
+            EsdmSelftestState::from(State::esdm_rpcc_selftest_failed),
+            EsdmSelftestState::Failed
+        );
+        // values unknown to this crate count as failure
+        assert_eq!(
+            EsdmSelftestState::from(State(0xdead)),
+            EsdmSelftestState::Failed
+        );
+    }
+}
