@@ -1,5 +1,5 @@
 //! JSON status of ESDM servers with different entropy sources and settings,
-//! and the error paths of a missing, stopped or restarted server
+//! and the error paths of a missing, hanging, stopped or restarted server
 //!
 //! Every case runs an `esdm-server` of its own in a private user, mount, IPC
 //! and PID namespace with fresh tmpfs mounts on `/run` and `/dev/shm`, so the
@@ -107,6 +107,12 @@ const CASES: &[Case] = &[
         server_args: None,
         provider: false,
         check: check_no_server,
+    },
+    Case {
+        name: "server_hangs",
+        server_args: Some(&["--small_memory"]),
+        provider: false,
+        check: check_server_hangs,
     },
     Case {
         name: "server_restart",
@@ -482,6 +488,29 @@ fn check_server_restart(server: &mut Server) {
     assert_all_work(&conn, &mut rng);
 }
 
+fn check_server_hangs(server: &mut Server) {
+    let conn = EsdmConnection::new();
+    let mut rng = EsdmRng::new(EsdmRngType::FullySeeded);
+    assert_all_work(&conn, &mut rng);
+
+    // A server which does not answer is reported after the timeout of the
+    // client library (a few seconds). The retries of this crate must not
+    // multiply it.
+    server.signal(libc::SIGSTOP);
+    let max = Duration::from_secs(10);
+    assert_fails("status", &[ErrorKind::TimedOut], max, || conn.status());
+    assert_fails("entropy count", &[ErrorKind::TimedOut], max, || {
+        conn.entropy_count()
+    });
+    assert_fails("random bytes", &[ErrorKind::TimedOut], max, || {
+        rng.try_fill_bytes(&mut [0u8; 32])
+    });
+
+    // and everything works again once it answers
+    server.signal(libc::SIGCONT);
+    assert_all_work(&conn, &mut rng);
+}
+
 const PROVIDER_RATE: u32 = 200;
 
 /// `struct esdm_es_ext_plugin` of `esdm_es_ext.h`
@@ -641,6 +670,14 @@ impl Server {
             let _ = child.kill();
             let _ = child.wait();
         }
+    }
+
+    fn signal(&self, sig: c_int) {
+        let child = self.child.as_ref().expect("server not running");
+        let pid = libc::pid_t::try_from(child.id()).unwrap();
+        // SAFETY: plain syscall on the pid of our own child, which is not
+        // reaped yet, so the pid cannot have been reused.
+        assert_eq!(unsafe { libc::kill(pid, sig) }, 0);
     }
 
     fn wait_until_seeded(&mut self) {

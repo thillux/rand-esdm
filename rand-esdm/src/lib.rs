@@ -87,9 +87,9 @@
 //! # Errors
 //!
 //! Errors are [`std::io::Error`]s carrying the errno the ESDM reported.
-//! Transient failures, like an interrupted connection, a timeout or the ESDM
-//! not being fully seeded yet, are retried a few times with a short backoff
-//! before they are reported. Calls which change the state of the server are
+//! Transient failures, like an interrupted connection or the ESDM not being
+//! fully seeded yet, are retried a few times with a short backoff before
+//! they are reported. Calls which change the state of the server are
 //! only repeated if they were interrupted before reaching it, so they never
 //! take effect twice.
 //!
@@ -102,6 +102,7 @@
 //! | --- | --- |
 //! | not running | [`std::io::ErrorKind::NotFound`] (no socket), right away |
 //! | stopped while connections exist | [`std::io::ErrorKind::ConnectionRefused`], after the client library tried to reconnect for a few seconds |
+//! | hanging, i.e. not answering | [`std::io::ErrorKind::TimedOut`], after a few seconds of silence |
 //! | started (again) | nothing: existing connections and RNGs work again without being created anew |
 //!
 //! [`esdm_is_fully_seeded`] and [`esdm_get_entropy_level`] return `None` in

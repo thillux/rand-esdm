@@ -9,7 +9,7 @@
 //! connection. Each call site therefore only has to pass valid pointers,
 //! which its `SAFETY` comment states.
 
-use libc::{EAGAIN, ECONNRESET, EFAULT, EINTR, ETIMEDOUT};
+use libc::{EAGAIN, ECONNRESET, EFAULT, EINTR};
 use std::ffi::c_int;
 use std::io::{Error, ErrorKind};
 use std::thread;
@@ -21,14 +21,18 @@ pub(crate) const ESDM_RETRY_COUNT: u32 = 5;
 /// whether a negative errno-style ESDM return value reports a failure which
 /// may go away when the call is issued again
 ///
-/// These are the interrupted, timed out or reset connections and the
-/// temporary refusals (`-EAGAIN`, e.g. while the ESDM is not fully seeded).
-/// Everything else, like missing privileges or an uninitialized service
-/// (`-EFAULT`), fails again the same way.
+/// These are the interrupted or reset connections and the temporary refusals
+/// (`-EAGAIN`, e.g. while the ESDM is not fully seeded). Everything else,
+/// like missing privileges or an uninitialized service (`-EFAULT`), fails
+/// again the same way.
+///
+/// `-ETIMEDOUT` is not transient either: the client library reports it only
+/// after the server stayed silent for a few seconds, so a retry would just
+/// multiply the time a hung server blocks the caller.
 pub(crate) fn is_transient(ret: i64) -> bool {
     ret.checked_neg()
         .and_then(|errno| i32::try_from(errno).ok())
-        .is_some_and(|errno| matches!(errno, EINTR | EAGAIN | ETIMEDOUT | ECONNRESET))
+        .is_some_and(|errno| matches!(errno, EINTR | EAGAIN | ECONNRESET))
 }
 
 /// decides whether to issue a call again after its `attempt`-th failure
@@ -111,6 +115,7 @@ pub(crate) fn once_rpc(mut rpc: impl FnMut() -> c_int, err_msg: &'static str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use libc::ETIMEDOUT;
 
     #[test]
     fn rpc_error_maps_errno() {
@@ -189,10 +194,17 @@ mod tests {
 
     #[test]
     fn transient_errors() {
-        for errno in [EINTR, EAGAIN, ETIMEDOUT, ECONNRESET] {
+        for errno in [EINTR, EAGAIN, ECONNRESET] {
             assert!(is_transient(-i64::from(errno)));
         }
-        for ret in [0, 1, -i64::from(libc::EACCES), -i64::from(EFAULT), i64::MIN] {
+        for ret in [
+            0,
+            1,
+            -i64::from(libc::EACCES),
+            -i64::from(EFAULT),
+            -i64::from(ETIMEDOUT),
+            i64::MIN,
+        ] {
             assert!(!is_transient(ret));
         }
     }

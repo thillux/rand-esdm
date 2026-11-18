@@ -108,7 +108,8 @@ connects on the first request and reconnects on its own, a connection or RNG
 can be created before the server runs and keeps working across server
 restarts. Without a server, calls fail with `ErrorKind::NotFound`; once a
 running server is stopped, with `ErrorKind::ConnectionRefused` after the
-library tried to reconnect for a few seconds. All types can be used
+library tried to reconnect for a few seconds. A server which hangs is reported
+with `ErrorKind::TimedOut` after a few seconds of silence. All types can be used
 from any thread, connections can be shared by reference or cloned.
 
 ## Examples
