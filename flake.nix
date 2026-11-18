@@ -16,9 +16,8 @@
   outputs = { self, nixpkgs, gitignore, flake-utils, esdm, ... }:
     let
       pkgs = nixpkgs.legacyPackages.x86_64-linux;
-      buildInputs = [
-        esdm.packages.x86_64-linux.esdm
-      ];
+      esdmPkg = esdm.packages.x86_64-linux.esdm;
+      buildInputs = [ esdmPkg ];
       nativeBuildInputs = with pkgs; [ pkg-config rustPlatform.bindgenHook ];
       inherit (import gitignore { inherit (pkgs) lib; }) gitignoreSource;
     in
@@ -27,6 +26,10 @@
         default = pkgs.callPackage ./build.nix {
           inherit buildInputs nativeBuildInputs gitignoreSource;
         };
+
+        # ESDM itself (server + CLI tools), for interactive testing:
+        #   nix build .#esdm && sudo ./result/bin/esdm-server -f
+        esdm = esdmPkg;
 
         run = pkgs.writeShellScriptBin "run" ''
           ${default}/bin/rand-esdm
