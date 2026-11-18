@@ -131,7 +131,10 @@ fn test_privileged_interface() {
     assert_eq!(result.crypto_state, EsdmSelftestState::Passed);
 }
 
+// need to be root to run this test: the server creates its need-entropy
+// semaphore with mode 0644, but attaching to it requires write access
 #[test]
+#[cfg(feature = "privileged_tests")]
 fn test_notification_handles_and_timeout() {
     // several handles share the aux library, dropping one must not detach
     // the others
