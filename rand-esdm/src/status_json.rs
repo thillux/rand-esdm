@@ -1,7 +1,9 @@
 //! typed model of the JSON status documents of the ESDM (ESDM >= 1.2.4)
 //!
 //! Unknown members are ignored, so documents of newer ESDM versions which add
-//! members still parse. Integer types follow the C types the ESDM renders.
+//! members still parse. All types are `#[non_exhaustive]`, so this crate can
+//! model such members later without breaking users. Integer types follow the
+//! C types the ESDM renders.
 
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -10,6 +12,7 @@ use crate::selftest::EsdmSelftestState;
 
 /// status of the ESDM, see [`crate::esdm_status`]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[non_exhaustive]
 pub struct EsdmStatus {
     /// version of the ESDM server
     pub library_version: String,
@@ -33,6 +36,7 @@ pub struct EsdmStatus {
 
 /// status of one entropy source
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[non_exhaustive]
 pub struct EsdmEntropySourceStatus {
     pub id: u32,
     pub name: String,
@@ -50,6 +54,7 @@ pub struct EsdmEntropySourceStatus {
 
 /// role of a DRNG instance
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[non_exhaustive]
 pub enum EsdmDrngType {
     #[serde(rename = "initial")]
     Initial,
@@ -64,6 +69,7 @@ pub enum EsdmDrngType {
 
 /// status of one DRNG instance, see [`crate::esdm_drng_status`]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[non_exhaustive]
 pub struct EsdmDrngStatus {
     #[serde(rename = "type")]
     pub drng_type: EsdmDrngType,
@@ -91,6 +97,7 @@ pub struct EsdmDrngStatus {
 
 /// status of the reseed worker
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[non_exhaustive]
 pub struct EsdmReseedWorkerStatus {
     pub running: bool,
     pub reseed_interval_seconds: u32,
@@ -98,6 +105,7 @@ pub struct EsdmReseedWorkerStatus {
 
 /// status of the periodic self tests
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[non_exhaustive]
 pub struct EsdmPeriodicSelftestStatus {
     /// state of the self tests of the hash and the DRNG
     pub state: EsdmSelftestState,

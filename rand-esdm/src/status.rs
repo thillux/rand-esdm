@@ -6,8 +6,8 @@ use std::io::{Error, ErrorKind};
 
 use esdm_sys::esdm;
 
-use crate::connection::{esdm_rng_fini, esdm_rng_init};
-use crate::rpc::{ESDM_RETRY_COUNT, rpc_error};
+use crate::connection::EsdmConnection;
+use crate::rpc::{rpc_error, should_retry};
 use crate::status_json::{EsdmDrngStatus, EsdmStatus};
 
 // largest status document the ESDM RPC protocol is able to transport
@@ -19,6 +19,7 @@ const ESDM_STATUS_MAX_LEN: usize = 65536;
 ///
 /// The buffer grows up to [`ESDM_STATUS_MAX_LEN`] if the server reports
 /// `-EMSGSIZE` (ESDM >= 1.2.4 no longer truncates status reports silently).
+/// Transient failures are retried, see [`crate::rpc::is_transient`].
 fn fetch_status_str(
     mut rpc_status: impl FnMut(*mut c_char, usize) -> c_int,
     err_msg: &'static str,
@@ -37,11 +38,12 @@ fn fetch_status_str(
             ret if ret == -EMSGSIZE && status_bytes.len() < ESDM_STATUS_MAX_LEN => {
                 status_bytes.resize(ESDM_STATUS_MAX_LEN, 0);
             }
+            // -EMSGSIZE at the maximum size is not transient either
             ret => {
-                failures += 1;
-                if failures == ESDM_RETRY_COUNT {
+                if !should_retry(ret.into(), failures) {
                     return Err(rpc_error(ret, err_msg));
                 }
+                failures += 1;
             }
         }
     }
@@ -115,8 +117,8 @@ fn parse_status_json<T: serde::de::DeserializeOwned>(doc: &str) -> Result<T, Err
 
 /// status of the ESDM (ESDM >= 1.2.4)
 ///
-/// Typed form of [`esdm_status_json_str`]. Needs an initialized connection,
-/// see [`crate::esdm_rng_init`].
+/// Typed form of [`esdm_status_json_str`]. Needs an unprivileged connection,
+/// see [`EsdmConnection`].
 pub fn esdm_status() -> Result<EsdmStatus, Error> {
     parse_status_json(&esdm_status_json_str()?)
 }
@@ -138,22 +140,22 @@ pub fn esdm_drng_status_pr() -> Result<EsdmDrngStatus, Error> {
 /// initializes an ESDM connection, fetches the status and releases the
 /// connection again
 fn with_status<T>(extract: impl FnOnce(&EsdmStatus) -> T) -> Option<T> {
-    if !esdm_rng_init() {
-        return None;
-    }
-
-    let result = esdm_status().ok().map(|status| extract(&status));
-
-    esdm_rng_fini();
-
-    result
+    let _conn = EsdmConnection::try_new().ok()?;
+    esdm_status().ok().map(|status| extract(&status))
 }
 
+/// whether the ESDM is fully seeded, sets up its own connection
+///
+/// Returns `None` on any error: if no connection can be set up or the status
+/// cannot be fetched or parsed. Use [`esdm_status`] to learn the reason.
 #[must_use]
 pub fn esdm_is_fully_seeded() -> Option<bool> {
     with_status(|status| status.fully_seeded)
 }
 
+/// entropy level of the ESDM in bits, sets up its own connection
+///
+/// Returns `None` on any error, see [`esdm_is_fully_seeded`].
 #[must_use]
 pub fn esdm_get_entropy_level() -> Option<u32> {
     with_status(|status| status.entropy_level_bits)
@@ -162,6 +164,7 @@ pub fn esdm_get_entropy_level() -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rpc::ESDM_RETRY_COUNT;
 
     /// copies `content` to the start of the buffer handed out by `fetch_status_str`
     fn write_buf(buf: *mut c_char, len: usize, content: &[u8]) {
@@ -215,9 +218,24 @@ mod tests {
             "msg",
         )
         .unwrap_err();
-        // one call to grow, then the retry budget is used up
-        assert_eq!(calls, 1 + ESDM_RETRY_COUNT);
+        // one call to grow, then no retries at the maximum size
+        assert_eq!(calls, 2);
         assert!(err.to_string().starts_with("msg: "));
+    }
+
+    #[test]
+    fn does_not_retry_permanent_errors() {
+        let mut calls = 0;
+        let err = fetch_status_str(
+            |_, _| {
+                calls += 1;
+                -libc::EACCES
+            },
+            "msg",
+        )
+        .unwrap_err();
+        assert_eq!(calls, 1);
+        assert_eq!(err.kind(), ErrorKind::PermissionDenied);
     }
 
     #[test]

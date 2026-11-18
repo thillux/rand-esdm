@@ -102,7 +102,12 @@ pub fn esdm_write_wakeup_thresh() -> Result<u32, Error> {
 /// sets the entropy rate of an entropy source (privileged interface, only
 /// supported by ESDM servers built in test mode or as debug build, ESDM >= 1.2.4)
 pub fn esdm_set_es_rate(es: &str, rate: u32) -> Result<(), Error> {
-    let es = CString::new(es).map_err(|_| Error::other("entropy source name contains NUL"))?;
+    let es = CString::new(es).map_err(|_| {
+        Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "entropy source name contains NUL",
+        )
+    })?;
     once_rpc(
         // SAFETY: `es` is a NUL-terminated string outliving the call, see `rpc.rs`.
         || unsafe { esdm::esdm_rpcc_set_es_rate(es.as_ptr(), rate) },

@@ -25,10 +25,9 @@ use std::time::{Duration, Instant};
 
 use rand_core::TryRng;
 use rand_esdm::{
-    EsdmDrngType, EsdmEntropySourceStatus, EsdmRng, EsdmRngType, EsdmSelftestState, EsdmStatus,
-    esdm_add_entropy, esdm_crng_reseed, esdm_drng_status, esdm_drng_status_pr,
-    esdm_is_fully_seeded, esdm_rng_init_checked, esdm_rng_init_priv_checked, esdm_selftest,
-    esdm_status,
+    EsdmConnection, EsdmDrngType, EsdmEntropySourceStatus, EsdmPrivConnection, EsdmRng,
+    EsdmRngType, EsdmSelftestState, EsdmStatus, esdm_add_entropy, esdm_crng_reseed,
+    esdm_drng_status, esdm_drng_status_pr, esdm_is_fully_seeded, esdm_selftest, esdm_status,
 };
 use serde_json::{Value, json};
 
@@ -246,7 +245,7 @@ fn wait_for_provider() -> EsdmStatus {
  */
 
 fn check_default() {
-    esdm_rng_init_checked();
+    let _conn = EsdmConnection::new();
     let status = fetch_status();
 
     let ext = source(&status, "ExternalSocket");
@@ -273,7 +272,7 @@ fn check_default() {
 }
 
 fn check_small_memory() {
-    esdm_rng_init_checked();
+    let _conn = EsdmConnection::new();
     let status = fetch_status();
     assert_eq!(status.drng_instances, 1);
     // the only DRNG instance is the initial one, serving node 0
@@ -284,13 +283,13 @@ fn check_small_memory() {
 }
 
 fn check_single_jent_instance() {
-    esdm_rng_init_checked();
+    let _conn = EsdmConnection::new();
     // the Jitter RNG alone still seeds the ESDM, see `check_common`
     fetch_status();
 }
 
 fn check_es_ext_unconnected() {
-    esdm_rng_init_checked();
+    let _conn = EsdmConnection::new();
     let status = fetch_status();
     let ext = source(&status, "ExternalSocket");
     assert_eq!(ext.name, "ExternalSocket");
@@ -321,7 +320,7 @@ fn check_provider_source(ext: &EsdmEntropySourceStatus) {
 }
 
 fn check_es_ext_provider_rate() {
-    esdm_rng_init_checked();
+    let _conn = EsdmConnection::new();
     let status = wait_for_provider();
     check_common(&status);
     let ext = source(&status, "ExternalSocket");
@@ -331,7 +330,7 @@ fn check_es_ext_provider_rate() {
 }
 
 fn check_es_ext_configured_rate() {
-    esdm_rng_init_checked();
+    let _conn = EsdmConnection::new();
     let status = wait_for_provider();
     check_common(&status);
     let ext = source(&status, "ExternalSocket");
@@ -342,8 +341,8 @@ fn check_es_ext_configured_rate() {
 }
 
 fn check_runtime_changes() {
-    esdm_rng_init_checked();
-    esdm_rng_init_priv_checked();
+    let _conn = EsdmConnection::new();
+    let _priv_conn = EsdmPrivConnection::new();
     let before = fetch_status();
 
     // a forced reseed starts a new seed generation of the initial DRNG
@@ -360,8 +359,8 @@ fn check_runtime_changes() {
     assert!(aux.is_some_and(|e| e > 0), "{aux:?}");
 
     // a self test run is counted
-    let (result, passed) = esdm_selftest().unwrap();
-    assert!(passed, "{result:?}");
+    let result = esdm_selftest().unwrap();
+    assert!(result.all_passed(), "{result:?}");
     let completed = fetch_status().periodic_self_test.completed_self_tests;
     assert!(completed > before.periodic_self_test.completed_self_tests);
 

@@ -12,9 +12,11 @@ mod status_json;
 #[cfg(test)]
 mod tests;
 
+pub use connection::{EsdmConnection, EsdmPrivConnection, esdm_set_max_online_nodes};
+#[expect(deprecated)]
 pub use connection::{
     esdm_rng_fini, esdm_rng_fini_priv, esdm_rng_init, esdm_rng_init_checked, esdm_rng_init_priv,
-    esdm_rng_init_priv_checked, esdm_set_max_online_nodes,
+    esdm_rng_init_priv_checked,
 };
 #[expect(deprecated)]
 pub use entropy::esdm_reseed_crng;

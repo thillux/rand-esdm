@@ -10,6 +10,7 @@ use crate::rpc::rpc_error;
 /// state of a group of ESDM self tests
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum EsdmSelftestState {
     Undone,
     Passed,
@@ -32,6 +33,7 @@ impl From<esdm::esdm_rpcc_selftest_state> for EsdmSelftestState {
 
 /// outcome of an ESDM self test run, see [`esdm_selftest`]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct EsdmSelftestResult {
     /// state of the self tests of the hash and the DRNG
     pub crypto_state: EsdmSelftestState,
@@ -41,13 +43,26 @@ pub struct EsdmSelftestResult {
     pub es_sources: u32,
     /// number of entropy sources which failed their self test
     pub es_failures: u32,
+    // verdict of the server, see `all_passed`
+    passed: bool,
+}
+
+impl EsdmSelftestResult {
+    /// whether every self test passed and the ESDM hands out random bits
+    ///
+    /// This is the verdict of the server: it also covers an earlier failed
+    /// self test which still holds the output back.
+    #[must_use]
+    pub fn all_passed(&self) -> bool {
+        self.passed
+    }
 }
 
 /// runs the ESDM self tests now (privileged interface, ESDM >= 1.2.4)
 ///
-/// Returns the outcome and whether every self test passed (`Ok(true)`), or
-/// an error if the server could not be asked.
-pub fn esdm_selftest() -> Result<(EsdmSelftestResult, bool), Error> {
+/// Returns the outcome, see [`EsdmSelftestResult::all_passed`] for the
+/// verdict, or an error if the server could not be asked.
+pub fn esdm_selftest() -> Result<EsdmSelftestResult, Error> {
     let mut result = esdm::esdm_rpcc_selftest_result {
         crypto_state: esdm::esdm_rpcc_selftest_state::esdm_rpcc_selftest_undone,
         es_state: esdm::esdm_rpcc_selftest_state::esdm_rpcc_selftest_undone,
@@ -70,17 +85,18 @@ pub fn esdm_selftest() -> Result<(EsdmSelftestResult, bool), Error> {
         es_state: result.es_state.into(),
         es_sources: result.es_sources,
         es_failures: result.es_failures,
+        passed: ret == 0,
     };
 
-    if ret == 0 {
-        Ok((result, true))
-    } else if result.crypto_state == EsdmSelftestState::Undone
+    // on error the library reports the undone states if nothing was received
+    if ret != 0
+        && result.crypto_state == EsdmSelftestState::Undone
         && result.es_state == EsdmSelftestState::Undone
     {
-        Err(rpc_error(ret, "ESDM error selftest"))
-    } else {
-        Ok((result, false))
+        return Err(rpc_error(ret, "ESDM error selftest"));
     }
+
+    Ok(result)
 }
 
 #[cfg(test)]

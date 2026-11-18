@@ -9,12 +9,45 @@
 //! connection. Each call site therefore only has to pass valid pointers,
 //! which its `SAFETY` comment states.
 
-use libc::EINTR;
+use libc::{EAGAIN, ECONNRESET, EINTR, ETIMEDOUT};
 use std::ffi::c_int;
 use std::io::Error;
+use std::thread;
+use std::time::Duration;
 
-// how often to retry RPC calls before returning an error
+// how often to try RPC calls before returning an error
 pub(crate) const ESDM_RETRY_COUNT: u32 = 5;
+
+/// whether a negative errno-style ESDM return value reports a failure which
+/// may go away when the call is issued again
+///
+/// These are the interrupted, timed out or reset connections and the
+/// temporary refusals (`-EAGAIN`, e.g. while the ESDM is not fully seeded).
+/// Everything else, like missing privileges or an uninitialized service
+/// (`-EFAULT`), fails again the same way.
+pub(crate) fn is_transient(ret: i64) -> bool {
+    ret.checked_neg()
+        .and_then(|errno| i32::try_from(errno).ok())
+        .is_some_and(|errno| matches!(errno, EINTR | EAGAIN | ETIMEDOUT | ECONNRESET))
+}
+
+/// decides whether to issue a call again after its `attempt`-th failure
+/// (counting from 0) returned `ret`
+///
+/// Returns `false` if the retry budget is used up or the failure is not
+/// transient. Otherwise it backs off briefly before returning `true`, unless
+/// the call was merely interrupted.
+pub(crate) fn should_retry(ret: i64, attempt: u32) -> bool {
+    if attempt + 1 >= ESDM_RETRY_COUNT || !is_transient(ret) {
+        return false;
+    }
+
+    if ret != -i64::from(EINTR) {
+        thread::sleep(Duration::from_millis(1 << attempt.min(6)));
+    }
+
+    true
+}
 
 /// converts a negative errno-style ESDM return value into an [`Error`]
 pub(crate) fn rpc_error(ret: impl Into<i64>, err_msg: &'static str) -> Error {
@@ -27,8 +60,9 @@ pub(crate) fn rpc_error(ret: impl Into<i64>, err_msg: &'static str) -> Error {
     Error::new(os_err.kind(), format!("{err_msg}: {os_err}"))
 }
 
-/// retries an idempotent ESDM RPC call up to [`ESDM_RETRY_COUNT`] times until
-/// it reports success
+/// issues an idempotent ESDM RPC call up to [`ESDM_RETRY_COUNT`] times until
+/// it reports success or a failure which is not transient, see
+/// [`is_transient`]
 ///
 /// Only use this for calls which can safely be issued multiple times: since
 /// ESDM 1.2.4, a request without an answer may still have been processed by
@@ -37,15 +71,17 @@ pub(crate) fn retry_rpc(
     mut rpc: impl FnMut() -> c_int,
     err_msg: &'static str,
 ) -> Result<(), Error> {
-    let mut ret = 0;
-    for _ in 0..ESDM_RETRY_COUNT {
-        ret = rpc();
+    let mut attempt = 0;
+    loop {
+        let ret = rpc();
         if ret == 0 {
             return Ok(());
         }
+        if !should_retry(ret.into(), attempt) {
+            return Err(rpc_error(ret, err_msg));
+        }
+        attempt += 1;
     }
-
-    Err(rpc_error(ret, err_msg))
 }
 
 /// issues an ESDM RPC call, whose effect adds up, exactly once
@@ -68,7 +104,7 @@ mod tests {
 
     #[test]
     fn rpc_error_maps_errno() {
-        let err = rpc_error(-libc::ETIMEDOUT, "msg");
+        let err = rpc_error(-ETIMEDOUT, "msg");
         assert_eq!(err.kind(), ErrorKind::TimedOut);
         assert!(err.to_string().starts_with("msg: "));
 
@@ -90,11 +126,7 @@ mod tests {
         let res = retry_rpc(
             || {
                 calls += 1;
-                if calls < ESDM_RETRY_COUNT {
-                    -libc::EAGAIN
-                } else {
-                    0
-                }
+                if calls < ESDM_RETRY_COUNT { -EAGAIN } else { 0 }
             },
             "msg",
         );
@@ -109,9 +141,9 @@ mod tests {
             || {
                 calls += 1;
                 if calls < ESDM_RETRY_COUNT {
-                    -libc::EAGAIN
+                    -EAGAIN
                 } else {
-                    -libc::ETIMEDOUT
+                    -ETIMEDOUT
                 }
             },
             "msg",
@@ -119,6 +151,39 @@ mod tests {
         .unwrap_err();
         assert_eq!(calls, ESDM_RETRY_COUNT);
         assert_eq!(err.kind(), ErrorKind::TimedOut);
+    }
+
+    #[test]
+    fn retry_rpc_does_not_retry_permanent_errors() {
+        for errno in [libc::EACCES, libc::EFAULT, libc::EOPNOTSUPP] {
+            let mut calls = 0;
+            let err = retry_rpc(
+                || {
+                    calls += 1;
+                    -errno
+                },
+                "msg",
+            )
+            .unwrap_err();
+            assert_eq!(calls, 1);
+            assert!(err.to_string().starts_with("msg: "));
+        }
+    }
+
+    #[test]
+    fn transient_errors() {
+        for errno in [EINTR, EAGAIN, ETIMEDOUT, ECONNRESET] {
+            assert!(is_transient(-i64::from(errno)));
+        }
+        for ret in [
+            0,
+            1,
+            -i64::from(libc::EACCES),
+            -i64::from(libc::EFAULT),
+            i64::MIN,
+        ] {
+            assert!(!is_transient(ret));
+        }
     }
 
     #[test]
@@ -141,7 +206,7 @@ mod tests {
         let err = once_rpc(
             || {
                 calls += 1;
-                -libc::EAGAIN
+                -EAGAIN
             },
             "msg",
         )

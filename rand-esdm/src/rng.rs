@@ -1,16 +1,18 @@
 //! [`EsdmRng`] and its `rand_core` trait implementations
 
 use libc::EAGAIN;
-use rand_core::TryRng;
+use rand_core::{TryCryptoRng, TryRng};
+use zeroize::Zeroizing;
 
 use esdm_sys::esdm;
 
 use std::io::Error;
 
-use crate::connection::{esdm_rng_fini, esdm_rng_init};
-use crate::rpc::{ESDM_RETRY_COUNT, rpc_error};
+use crate::connection::EsdmConnection;
+use crate::rpc::{rpc_error, should_retry};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum EsdmRngType {
     /// ESDM RNG implementation, which uses fresh entropy for every random output produced
     PredictionResistant,
@@ -23,6 +25,8 @@ pub enum EsdmRngType {
 #[derive(Debug)]
 pub struct EsdmRng {
     rng_type: EsdmRngType,
+    // keeps the client connection alive as long as the RNG exists
+    _conn: EsdmConnection,
 }
 
 impl EsdmRng {
@@ -36,20 +40,10 @@ impl EsdmRng {
 
     /// sets up the client connection to the ESDM server for this RNG
     pub fn try_new(rng_type: EsdmRngType) -> Result<Self, Error> {
-        if esdm_rng_init() {
-            Ok(Self { rng_type })
-        } else {
-            Err(Error::new(
-                std::io::ErrorKind::ConnectionRefused,
-                "unable to initialize ESDM connection",
-            ))
-        }
-    }
-}
-
-impl Drop for EsdmRng {
-    fn drop(&mut self) {
-        esdm_rng_fini();
+        Ok(Self {
+            rng_type,
+            _conn: EsdmConnection::try_new()?,
+        })
     }
 }
 
@@ -59,30 +53,30 @@ impl Drop for EsdmRng {
 impl TryRng for EsdmRng {
     type Error = Error;
 
+    // The stack buffers below are wiped on every return path. This is best
+    // effort only: the returned value itself and any copies the compiler
+    // makes of it are not covered.
+
     fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
-        Ok(u32::try_from(self.try_next_u64()? & 0xFF_FF_FF_FF).unwrap())
+        let mut bytes = Zeroizing::new([0u8; 4]);
+        self.try_fill_bytes(&mut *bytes)?;
+
+        Ok(u32::from_ne_bytes(*bytes))
     }
 
     fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
-        let mut bytes: [u8; 8] = [0; 8];
-        self.try_fill_bytes(&mut bytes)?;
+        let mut bytes = Zeroizing::new([0u8; 8]);
+        self.try_fill_bytes(&mut *bytes)?;
 
-        Ok(u64::from_ne_bytes(bytes))
+        Ok(u64::from_ne_bytes(*bytes))
     }
 
     fn try_fill_bytes(&mut self, dst: &mut [u8]) -> Result<(), Self::Error> {
         let mut filled = 0;
+        // consecutive failures, any progress resets them
         let mut failures = 0;
-        let mut last_ret: isize = 0;
 
         while filled < dst.len() {
-            if failures == ESDM_RETRY_COUNT {
-                return Err(rpc_error(
-                    i64::try_from(last_ret).unwrap_or(-i64::from(libc::EIO)),
-                    "Unable to fetch random bytes from ESDM",
-                ));
-            }
-
             let remaining = &mut dst[filled..];
             let ret = match self.rng_type {
                 // SAFETY: `remaining` is writable for `remaining.len()` bytes
@@ -99,13 +93,21 @@ impl TryRng for EsdmRng {
 
             match usize::try_from(ret) {
                 // short reads are possible, continue with the remainder
-                Ok(n) if n > 0 => filled += n.min(remaining.len()),
+                Ok(n) if n > 0 => {
+                    filled += n.min(remaining.len());
+                    failures = 0;
+                }
                 _ => {
-                    last_ret = if ret == 0 {
-                        -isize::try_from(EAGAIN).unwrap()
+                    // no bytes without an error is treated as a temporary
+                    // refusal
+                    let ret = if ret == 0 {
+                        -i64::from(EAGAIN)
                     } else {
-                        ret
+                        i64::try_from(ret).unwrap_or(-i64::from(libc::EIO))
                     };
+                    if !should_retry(ret, failures) {
+                        return Err(rpc_error(ret, "Unable to fetch random bytes from ESDM"));
+                    }
                     failures += 1;
                 }
             }
@@ -114,3 +116,6 @@ impl TryRng for EsdmRng {
         Ok(())
     }
 }
+
+/// the ESDM is a cryptographically secure RNG, in both modes
+impl TryCryptoRng for EsdmRng {}

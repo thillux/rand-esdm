@@ -12,15 +12,24 @@ It currently provides the minimal amount of bindings necessary to use ESDM toget
 ### Add rand-esdm to your Cargo.toml
 
 ```toml
-rand-esdm = "0.4.0"
+rand-esdm = "0.5.0"
 ```
 
 ### Generate Random Numbers with rand crate
 
 Choose type of rng:
 
-- Only usable when fully seeded: ```let mut rng = EsdmRng::new(EsdmRngType::FullySeeded);```
-- Only usable with fresh entropy: ```let mut rng = EsdmRng::new(EsdmRngType::PredictionResistant);```
+- Only usable when fully seeded: ```EsdmRng::new(EsdmRngType::FullySeeded)```
+- Only usable with fresh entropy: ```EsdmRng::new(EsdmRngType::PredictionResistant)```
+
+`EsdmRng` implements the fallible `TryRng` and `TryCryptoRng` traits. Wrap it
+in `UnwrapErr` to use it as infallible `Rng`/`CryptoRng`, which panics if the
+ESDM cannot deliver random bytes:
+```rust
+use rand::rand_core::UnwrapErr;
+
+let mut rng = UnwrapErr(EsdmRng::new(EsdmRngType::FullySeeded));
+```
 
 Include RngExt utility trait from rand:
 ```rust
@@ -28,7 +37,7 @@ use rand::RngExt;
 ```
 
 Draw random numbers as needed, e.g.:
-```rust  
+```rust
 let rnd: u64 = rng.random();
 ```
 

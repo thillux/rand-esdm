@@ -15,14 +15,12 @@ fn test_prediction_resistant_mode() {
 
 #[test]
 fn test_write_wakeup_thresh() {
-    esdm_rng_init_checked();
+    let _conn = EsdmConnection::new();
 
     let write_wakup_thresh = esdm_write_wakeup_thresh().unwrap();
     assert_ne!(write_wakup_thresh, 0);
 
     println!("write wakeup thresh: {write_wakup_thresh}");
-
-    esdm_rng_fini();
 }
 
 #[test]
@@ -67,7 +65,7 @@ fn test_fully_seeded_mode() {
 
 #[test]
 fn test_status_json() {
-    esdm_rng_init_checked();
+    let conn = EsdmConnection::new();
 
     let status: serde_json::Value = serde_json::from_str(&esdm_status_json_str().unwrap()).unwrap();
     assert!(status.get("fully_seeded").unwrap().is_boolean());
@@ -85,7 +83,7 @@ fn test_status_json() {
     );
     esdm_drng_status(0).unwrap();
 
-    esdm_rng_fini();
+    drop(conn);
 
     assert!(esdm_is_fully_seeded().is_some());
     assert!(esdm_get_entropy_level().is_some());
@@ -101,14 +99,12 @@ fn test_large_request() {
 
 #[test]
 fn test_status() {
-    esdm_rng_init_checked();
+    let _conn = EsdmConnection::new();
 
     for _ in 0..100 {
         let status = esdm_status_str().unwrap();
         println!("{status}");
     }
-
-    esdm_rng_fini();
 }
 
 // need to be root to run this test
@@ -116,8 +112,8 @@ fn test_status() {
 #[cfg(feature = "privileged_tests")]
 fn test_privileged_interface() {
     // also need unprivileged interface for random bytes
-    esdm_rng_init_checked();
-    esdm_rng_init_priv_checked();
+    let _conn = EsdmConnection::new();
+    let _priv_conn = EsdmPrivConnection::new();
 
     esdm_clear_pool().unwrap();
     assert_eq!(esdm_get_entropy_count().unwrap(), 0);
@@ -133,9 +129,9 @@ fn test_privileged_interface() {
     esdm_add_entropy(&buf, u32::try_from(buf.len() * 8).unwrap()).unwrap();
     assert!(esdm_get_entropy_count().unwrap() >= 32 * 8);
 
-    let (result, passed) = esdm_selftest().unwrap();
+    let result = esdm_selftest().unwrap();
     println!("selftest: {result:?}");
-    assert!(passed);
+    assert!(result.all_passed());
     assert_eq!(result.crypto_state, EsdmSelftestState::Passed);
 }
 
@@ -171,7 +167,7 @@ fn test_add_entropy_rejects_overcrediting() {
 fn test_set_es_rate_rejects_nul() {
     // checked before talking to the server, so no privileges are needed
     let err = esdm_set_es_rate("jent\0", 0).unwrap_err();
-    assert_eq!(err.kind(), std::io::ErrorKind::Other);
+    assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
 }
 
 #[test]
@@ -189,18 +185,31 @@ fn test_next_u32_and_odd_sizes() {
 }
 
 #[test]
-fn test_nested_init_fini() {
-    // the connection is reference counted, an inner fini must keep it alive
+fn test_nested_connections() {
+    // the connection is reference counted, dropping an inner one must keep
+    // it alive
+    let outer = EsdmConnection::new();
+    let inner = EsdmConnection::new();
+    drop(inner);
+    assert!(esdm_status_json_str().is_ok());
+    drop(outer);
+}
+
+#[test]
+#[expect(deprecated)]
+fn test_deprecated_init_fini() {
+    // the deprecated free functions share the reference count with the
+    // connection guards
     esdm_rng_init_checked();
-    esdm_rng_init_checked();
+    let conn = EsdmConnection::new();
     esdm_rng_fini();
     assert!(esdm_status_json_str().is_ok());
-    esdm_rng_fini();
+    drop(conn);
 }
 
 #[test]
 fn test_other_status_reports() {
-    esdm_rng_init_checked();
+    let _conn = EsdmConnection::new();
 
     // may be empty if the server lacks the Jitter RNG entropy source
     println!("{}", esdm_jent_status_str().unwrap());
@@ -208,17 +217,13 @@ fn test_other_status_reports() {
     let drng: serde_json::Value =
         serde_json::from_str(&esdm_drng_status_json_str(0).unwrap()).unwrap();
     assert!(drng.is_object());
-
-    esdm_rng_fini();
 }
 
 #[test]
 fn test_unprivileged_entropy_interface() {
-    esdm_rng_init_checked();
+    let _conn = EsdmConnection::new();
 
     // works without privileges, the data is mixed in but not credited
     esdm_write_data(&[0x5a; 64]).unwrap();
     let _ = esdm_get_entropy_count().unwrap();
-
-    esdm_rng_fini();
 }
