@@ -49,7 +49,8 @@ Further test sets, each behind a feature of `rand-esdm`:
 - `privileged_tests`: the privileged interface (adding entropy, self tests,
   notifications). Needs root:
   `sudo -E cargo test -p rand-esdm --features privileged_tests`
-- `sandbox_tests`: JSON status tests, each against its own `esdm-server` in
+- `sandbox_tests`: JSON status tests and the error paths of a missing,
+  stopped and restarted server, each against its own `esdm-server` in
   unprivileged namespaces, independent of the server on the host. Needs
   `unshare` (util-linux >= 2.38) and a subordinate id range in `/etc/subuid`
   and `/etc/subgid`, see

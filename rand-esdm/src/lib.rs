@@ -93,6 +93,21 @@
 //! only repeated if they were interrupted before reaching it, so they never
 //! take effect twice.
 //!
+//! The client library connects to the server lazily, on the first request,
+//! and reconnects on its own. Creating an [`EsdmConnection`] or an
+//! [`EsdmRng`] therefore succeeds even if no server is running; its calls
+//! report the state of the server instead:
+//!
+//! | Server | Calls fail with |
+//! | --- | --- |
+//! | not running | [`std::io::ErrorKind::NotFound`] (no socket), right away |
+//! | stopped while connections exist | [`std::io::ErrorKind::ConnectionRefused`], after the client library tried to reconnect for a few seconds |
+//! | started (again) | nothing: existing connections and RNGs work again without being created anew |
+//!
+//! [`esdm_is_fully_seeded`] and [`esdm_get_entropy_level`] return `None` in
+//! these cases, and [`EsdmNotification::wait_for_entropy_needed_timeout`]
+//! times out.
+//!
 //! # Examples
 //!
 //! The `examples` directory of the repository contains complete programs:

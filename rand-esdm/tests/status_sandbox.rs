@@ -1,4 +1,5 @@
-//! JSON status of ESDM servers with different entropy sources and settings
+//! JSON status of ESDM servers with different entropy sources and settings,
+//! and the error paths of a missing, stopped or restarted server
 //!
 //! Every case runs an `esdm-server` of its own in a private user, mount, IPC
 //! and PID namespace with fresh tmpfs mounts on `/run` and `/dev/shm`, so the
@@ -15,8 +16,8 @@
 
 use std::env;
 use std::ffi::{CStr, c_char, c_int, c_void};
-use std::fs::File;
-use std::io::Read;
+use std::fs::{File, OpenOptions};
+use std::io::{ErrorKind, Read};
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitCode, Stdio};
@@ -25,8 +26,8 @@ use std::time::{Duration, Instant};
 
 use rand_core::TryRng;
 use rand_esdm::{
-    EsdmConnection, EsdmDrngType, EsdmEntropySourceStatus, EsdmPrivConnection, EsdmRng,
-    EsdmRngType, EsdmSelftestState, EsdmStatus, esdm_is_fully_seeded,
+    EsdmConnection, EsdmDrngType, EsdmEntropySourceStatus, EsdmNotification, EsdmPrivConnection,
+    EsdmRng, EsdmRngType, EsdmSelftestState, EsdmStatus, esdm_is_fully_seeded,
 };
 use serde_json::{Value, json};
 
@@ -43,62 +44,75 @@ const TIMEOUT: Duration = Duration::from_secs(60);
 
 struct Case {
     name: &'static str,
-    server_args: &'static [&'static str],
+    /// arguments of the server, `None` to start the case without one
+    server_args: Option<&'static [&'static str]>,
     /// serve an external entropy source on [`PROVIDER_SOCKET`] before the
     /// server is started
     provider: bool,
-    check: fn(),
+    check: fn(&mut Server),
 }
 
 const CASES: &[Case] = &[
     Case {
         name: "default",
-        server_args: &[],
+        server_args: Some(&[]),
         provider: false,
         check: check_default,
     },
     Case {
         name: "small_memory",
-        server_args: &["--small_memory"],
+        server_args: Some(&["--small_memory"]),
         provider: false,
         check: check_small_memory,
     },
     Case {
         name: "single_jent_instance",
-        server_args: &["--es_jent_instances", "1"],
+        server_args: Some(&["--es_jent_instances", "1"]),
         provider: false,
         check: check_single_jent_instance,
     },
     Case {
         name: "es_ext_unconnected",
-        server_args: &[
+        server_args: Some(&[
             "--es_ext",
             "/run/rand-esdm-test-absent.socket",
             "--es_ext_entropy_rate",
             "128",
             "--es_ext_uid",
             "1000",
-        ],
+        ]),
         provider: false,
         check: check_es_ext_unconnected,
     },
     Case {
         name: "es_ext_provider_rate",
-        server_args: &["--es_ext", PROVIDER_SOCKET, "--es_ext_entropy_rate", "auto"],
+        server_args: Some(&["--es_ext", PROVIDER_SOCKET, "--es_ext_entropy_rate", "auto"]),
         provider: true,
         check: check_es_ext_provider_rate,
     },
     Case {
         name: "es_ext_configured_rate",
-        server_args: &["--es_ext", PROVIDER_SOCKET, "--es_ext_entropy_rate", "32"],
+        server_args: Some(&["--es_ext", PROVIDER_SOCKET, "--es_ext_entropy_rate", "32"]),
         provider: true,
         check: check_es_ext_configured_rate,
     },
     Case {
         name: "runtime_changes",
-        server_args: &["--small_memory"],
+        server_args: Some(&["--small_memory"]),
         provider: false,
         check: check_runtime_changes,
+    },
+    Case {
+        name: "no_server",
+        server_args: None,
+        provider: false,
+        check: check_no_server,
+    },
+    Case {
+        name: "server_restart",
+        server_args: Some(&["--small_memory"]),
+        provider: false,
+        check: check_server_restart,
     },
 ];
 
@@ -243,7 +257,7 @@ fn wait_for_provider(conn: &EsdmConnection) -> EsdmStatus {
  * checks of the cases, run inside the sandbox
  */
 
-fn check_default() {
+fn check_default(_: &mut Server) {
     let conn = EsdmConnection::new();
     let status = fetch_status(&conn);
 
@@ -270,7 +284,7 @@ fn check_default() {
     assert!(node0.fully_seeded);
 }
 
-fn check_small_memory() {
+fn check_small_memory(_: &mut Server) {
     let conn = EsdmConnection::new();
     let status = fetch_status(&conn);
     assert_eq!(status.drng_instances, 1);
@@ -281,13 +295,13 @@ fn check_small_memory() {
     assert_eq!(Some(&node0), status.drngs.first());
 }
 
-fn check_single_jent_instance() {
+fn check_single_jent_instance(_: &mut Server) {
     let conn = EsdmConnection::new();
     // the Jitter RNG alone still seeds the ESDM, see `check_common`
     fetch_status(&conn);
 }
 
-fn check_es_ext_unconnected() {
+fn check_es_ext_unconnected(_: &mut Server) {
     let conn = EsdmConnection::new();
     let status = fetch_status(&conn);
     let ext = source(&status, "ExternalSocket");
@@ -318,7 +332,7 @@ fn check_provider_source(ext: &EsdmEntropySourceStatus) {
     assert_eq!(provider["server"]["entropy_rate"], PROVIDER_RATE);
 }
 
-fn check_es_ext_provider_rate() {
+fn check_es_ext_provider_rate(_: &mut Server) {
     let conn = EsdmConnection::new();
     let status = wait_for_provider(&conn);
     check_common(&status);
@@ -328,7 +342,7 @@ fn check_es_ext_provider_rate() {
     assert_eq!(detail(ext, "assessed_rate"), PROVIDER_RATE);
 }
 
-fn check_es_ext_configured_rate() {
+fn check_es_ext_configured_rate(_: &mut Server) {
     let conn = EsdmConnection::new();
     let status = wait_for_provider(&conn);
     check_common(&status);
@@ -339,7 +353,7 @@ fn check_es_ext_configured_rate() {
     assert_eq!(detail(ext, "assessed_rate"), 32);
 }
 
-fn check_runtime_changes() {
+fn check_runtime_changes(_: &mut Server) {
     let conn = EsdmConnection::new();
     let priv_conn = EsdmPrivConnection::new();
     let before = fetch_status(&conn);
@@ -378,6 +392,95 @@ fn check_runtime_changes() {
 /*
  * external entropy source provider, served by libesdm_es_ext
  */
+
+/// asserts that `f` fails with one of `kinds` within `max`
+fn assert_fails<T: std::fmt::Debug>(
+    what: &str,
+    kinds: &[ErrorKind],
+    max: Duration,
+    f: impl FnOnce() -> std::io::Result<T>,
+) {
+    let start = Instant::now();
+    let res = f();
+    let elapsed = start.elapsed();
+    match res {
+        Err(e) => assert!(kinds.contains(&e.kind()), "{what}: unexpected error {e:?}"),
+        Ok(v) => panic!("{what}: unexpected success {v:?}"),
+    }
+    assert!(elapsed < max, "{what}: took {elapsed:?}");
+}
+
+/// every kind of call fails with one of `kinds` within `max`
+fn assert_all_fail(conn: &EsdmConnection, rng: &mut EsdmRng, kinds: &[ErrorKind], max: Duration) {
+    assert_fails("status", kinds, max, || conn.status());
+    assert_fails("status text", kinds, max, || conn.status_text());
+    assert_fails("entropy count", kinds, max, || conn.entropy_count());
+    assert_fails("write data", kinds, max, || conn.write_data(&[0x5a; 8]));
+    assert_fails("random bytes", kinds, max, || {
+        rng.try_fill_bytes(&mut [0u8; 32])
+    });
+    assert_fails("privileged call", kinds, max, || {
+        EsdmPrivConnection::try_new()?.crng_reseed()
+    });
+    assert_eq!(esdm_is_fully_seeded(), None);
+}
+
+/// every kind of call works
+fn assert_all_work(conn: &EsdmConnection, rng: &mut EsdmRng) {
+    assert!(conn.status().unwrap().fully_seeded);
+    conn.entropy_count().unwrap();
+    conn.write_data(&[0x5a; 8]).unwrap();
+    rng.try_fill_bytes(&mut [0u8; 32]).unwrap();
+    EsdmPrivConnection::new().crng_reseed().unwrap();
+    assert_eq!(esdm_is_fully_seeded(), Some(true));
+}
+
+fn check_no_server(_: &mut Server) {
+    // the client library connects lazily, so setting up works
+    let conn = EsdmConnection::try_new().unwrap();
+    let mut rng = EsdmRng::try_new(EsdmRngType::FullySeeded).unwrap();
+
+    // the socket is missing: the calls fail right away and say why
+    assert_all_fail(
+        &conn,
+        &mut rng,
+        &[ErrorKind::NotFound],
+        Duration::from_secs(1),
+    );
+
+    // nobody signals the need for entropy, so the wait times out on time
+    let mut notification = EsdmNotification::try_new().unwrap();
+    let start = Instant::now();
+    assert_fails(
+        "notification",
+        &[ErrorKind::TimedOut],
+        Duration::from_secs(5),
+        || notification.wait_for_entropy_needed_timeout(Duration::from_millis(300)),
+    );
+    assert!(start.elapsed() >= Duration::from_millis(300));
+}
+
+fn check_server_restart(server: &mut Server) {
+    let conn = EsdmConnection::new();
+    let mut rng = EsdmRng::new(EsdmRngType::FullySeeded);
+    assert_all_work(&conn, &mut rng);
+
+    // A stopped server is reported as such. The client library tries to
+    // reconnect for a while before it gives up, the retries of this crate
+    // must not multiply that.
+    server.stop();
+    assert_all_fail(
+        &conn,
+        &mut rng,
+        &[ErrorKind::ConnectionRefused, ErrorKind::NotFound],
+        Duration::from_secs(10),
+    );
+
+    // the same connection and RNG work again once the server is back
+    server.start();
+    server.wait_until_seeded();
+    assert_all_work(&conn, &mut rng);
+}
 
 const PROVIDER_RATE: u32 = 200;
 
@@ -506,16 +609,48 @@ fn mount_tmpfs(target: &CStr) {
     );
 }
 
-fn start_server(server: &Path, args: &[&str]) -> Child {
-    let log = File::create(SERVER_LOG).unwrap();
-    Command::new(server)
-        .arg("--foreground")
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(log.try_clone().unwrap())
-        .stderr(log)
-        .spawn()
-        .unwrap_or_else(|e| panic!("cannot start {}: {e}", server.display()))
+/// the `esdm-server` of a case, which a check may stop and start again
+struct Server {
+    path: PathBuf,
+    args: &'static [&'static str],
+    child: Option<Child>,
+}
+
+impl Server {
+    fn start(&mut self) {
+        assert!(self.child.is_none(), "server already running");
+        // appends, so the log of a restarted server keeps the earlier runs
+        let log = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(SERVER_LOG)
+            .unwrap();
+        let child = Command::new(&self.path)
+            .arg("--foreground")
+            .args(self.args)
+            .stdin(Stdio::null())
+            .stdout(log.try_clone().unwrap())
+            .stderr(log)
+            .spawn()
+            .unwrap_or_else(|e| panic!("cannot start {}: {e}", self.path.display()));
+        self.child = Some(child);
+    }
+
+    fn stop(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+
+    fn wait_until_seeded(&mut self) {
+        wait_for("the ESDM to be fully seeded", || {
+            if let Some(Ok(Some(status))) = self.child.as_mut().map(Child::try_wait) {
+                panic!("esdm-server exited with {status}");
+            }
+            esdm_is_fully_seeded().filter(|&seeded| seeded)
+        });
+    }
 }
 
 fn run_inside(case: &Case) -> ExitCode {
@@ -527,20 +662,21 @@ fn run_inside(case: &Case) -> ExitCode {
     if case.provider {
         serve_provider();
     }
-    let mut child = start_server(&server, case.server_args);
+    let mut server = Server {
+        path: server,
+        args: case.server_args.unwrap_or_default(),
+        child: None,
+    };
 
     let result = panic::catch_unwind(AssertUnwindSafe(|| {
-        wait_for("the ESDM to be fully seeded", || {
-            if let Ok(Some(status)) = child.try_wait() {
-                panic!("esdm-server exited with {status}");
-            }
-            esdm_is_fully_seeded().filter(|&seeded| seeded)
-        });
-        (case.check)();
+        if case.server_args.is_some() {
+            server.start();
+            server.wait_until_seeded();
+        }
+        (case.check)(&mut server);
     }));
 
-    let _ = child.kill();
-    let _ = child.wait();
+    server.stop();
 
     if result.is_ok() {
         ExitCode::SUCCESS

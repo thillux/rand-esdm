@@ -13,7 +13,8 @@ authors.workspace = true
 [features]
 default = []
 privileged_tests = []
-# JSON status tests against sandboxed ESDM servers, see tests/status_sandbox.rs
+# JSON status and error path tests against sandboxed ESDM servers, see
+# tests/status_sandbox.rs
 sandbox_tests = []
 
 [dependencies]

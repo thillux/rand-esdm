@@ -93,6 +93,9 @@ impl EsdmConnection {
     }
 
     /// sets up the unprivileged client connection to the ESDM
+    ///
+    /// Succeeds without a running server, as the client library connects on
+    /// the first request, see the [crate documentation](crate#errors).
     pub fn try_new() -> Result<Self, Error> {
         init_unpriv()?;
         Ok(Self { _private: () })
@@ -151,6 +154,9 @@ impl EsdmPrivConnection {
     }
 
     /// sets up the privileged client connection to the ESDM
+    ///
+    /// Succeeds without a running server and without root privileges, the
+    /// calls report both, see the [crate documentation](crate#errors).
     pub fn try_new() -> Result<Self, Error> {
         init_priv()?;
         Ok(Self { _private: () })
