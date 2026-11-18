@@ -1,6 +1,8 @@
-use rand_core::{TryRng, UnwrapErr};
+#![forbid(unsafe_code)]
+
+use rand::rngs::{ChaCha20Rng, SysRng};
 use rand::{Rng, SeedableRng};
-use rand::rngs::{SysRng, ChaCha20Rng};
+use rand_core::{TryRng, UnwrapErr};
 use rand_esdm::{EsdmRng, EsdmRngType};
 use rand_xoshiro::Xoshiro256PlusPlus;
 
@@ -57,7 +59,7 @@ impl Benchmark for BenchmarkEsdm {
  * SysRng
  */
 #[derive(Default)]
-struct BenchmarkSysRng {}
+struct BenchmarkSysRng;
 
 impl Benchmark for BenchmarkSysRng {
     fn fill_bytes(&mut self, buf: &mut [u8]) {
@@ -115,7 +117,7 @@ fn main() {
     println!();
 
     println!("getrandom/SysRng:");
-    let mut rng_os = BenchmarkSysRng::default();
+    let mut rng_os = BenchmarkSysRng;
     benchmark_rng(&mut rng_os);
 
     println!();

@@ -1,6 +1,6 @@
 use std::{env::var, path::PathBuf};
 
-use bindgen::Builder;
+use bindgen::{Builder, RustEdition, RustTarget};
 
 fn main() {
     let rpc_client = pkg_config::Config::new()
@@ -10,6 +10,14 @@ fn main() {
     let aux_client = pkg_config::Config::new().probe("esdm_aux_client").unwrap();
     pkg_config::Config::new().probe("libprotobuf-c").unwrap();
 
+    // generate code for the workspace MSRV and edition, independent of the
+    // newest Rust release known to bindgen
+    let builder = || {
+        Builder::default()
+            .rust_target(RustTarget::stable(88, 0).unwrap())
+            .rust_edition(RustEdition::Edition2024)
+    };
+
     let include_args = |lib: &pkg_config::Library| -> Vec<String> {
         lib.include_paths
             .iter()
@@ -17,7 +25,7 @@ fn main() {
             .collect()
     };
 
-    let bindings = Builder::default()
+    let bindings = builder()
         .header("esdm-include.h")
         .clang_args(include_args(&rpc_client))
         .allowlist_function("esdm_rpcc_fini_priv_service")
@@ -47,7 +55,9 @@ fn main() {
         .allowlist_function("esdm_rpcc_selftest")
         .allowlist_function("esdm_rpcc_set_es_rate")
         .allowlist_type("esdm_rpcc_selftest_state")
-        .rustified_enum("esdm_rpcc_selftest_state")
+        // the client library copies the state from the server's answer without
+        // a range check, so it must not become a Rust enum
+        .newtype_enum("esdm_rpcc_selftest_state")
         .generate()
         .unwrap();
     let mut bindings_path = PathBuf::from(var("OUT_DIR").unwrap());
@@ -56,7 +66,7 @@ fn main() {
         .write_to_file(&bindings_path)
         .expect("Could not write bindings to file");
 
-    let bindings = Builder::default()
+    let bindings = builder()
         .header("esdm-aux-include.h")
         .clang_args(include_args(&aux_client))
         .allowlist_function("esdm_aux_fini_wait_for_need_entropy")

@@ -6,12 +6,13 @@ members = [
     "rand-esdm",
 ]
 default-members = ["esdm-tool"]
-resolver = "2"
+resolver = "3"
 
 [workspace.package]
 version = "0.4.0"
 authors = ["Markus Theil <theil.markus@gmail.com>"]
 edition = "2024"
+rust-version = "1.88"
 
 [workspace.dependencies]
 bindgen = { version = "0.72.1" }
@@ -26,16 +27,30 @@ rand_core = { version = "0.10.1" }
 rand_xoshiro = { version = "0.8.1" }
 serde_json = { version = "1.0.149" }
 rand-esdm = { path = "rand-esdm", version = "0.4.0" }
+zeroize = { version = "1.9.2" }
+
+[profile.release]
+# integer overflows are bugs in code handling entropy accounting, keep
+# catching them in release builds
+overflow-checks = true
+
+[workspace.lints.rust]
+rust_2018_idioms = { level = "deny", priority = -1 }
+unsafe_op_in_unsafe_fn = "deny"
+unused_qualifications = "warn"
 
 [workspace.lints.clippy]
 all = { level = "deny", priority = 0 }
 pedantic = { level = "deny", priority = 0 }
 cargo = { level = "deny", priority = 0 }
-cargo-common-metadata = { level = "allow", priority = 1 }
+cargo_common_metadata = { level = "allow", priority = 1 }
 # duplicate transitive dependency versions (e.g. hashbrown via wasmparser)
 # are outside of this workspace's control
-multiple-crate-versions = { level = "allow", priority = 1 }
+multiple_crate_versions = { level = "allow", priority = 1 }
 cast_precision_loss = { level = "allow", priority = 1 }
 missing_safety_doc = { level = "allow", priority = 1 }
 missing_errors_doc = { level = "allow", priority = 1 }
 missing_panics_doc = { level = "allow", priority = 1 }
+# every unsafe block states why its contract holds
+undocumented_unsafe_blocks = "deny"
+unnecessary_safety_comment = "deny"

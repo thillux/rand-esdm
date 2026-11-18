@@ -3,5 +3,6 @@
 #![allow(deref_nullptr)]
 #![allow(clippy::all)]
 #![allow(clippy::pedantic)]
+#![allow(clippy::undocumented_unsafe_blocks)]
 
 include!(concat!(env!("OUT_DIR"), "/esdm-aux-bindings.rs"));

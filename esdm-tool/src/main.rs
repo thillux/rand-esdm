@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use rand_core::TryRng;
 use std::{
     io::{Read, Write},
@@ -8,12 +10,20 @@ use std::{
 
 use clap::{Args, Parser, Subcommand};
 use rand_esdm::{
-    EsdmNotification, EsdmRng, esdm_add_entropy, esdm_crng_reseed, esdm_drng_status_json_str,
-    esdm_drng_status_pr_json_str, esdm_get_entropy_count, esdm_get_entropy_level,
-    esdm_is_fully_seeded, esdm_jent_status_str, esdm_rng_fini, esdm_rng_fini_priv, esdm_rng_init,
-    esdm_rng_init_checked, esdm_rng_init_priv, esdm_rng_init_priv_checked, esdm_selftest,
+    EsdmNotification, EsdmRng, EsdmRngType, esdm_add_entropy, esdm_crng_reseed,
+    esdm_drng_status_json_str, esdm_drng_status_pr_json_str, esdm_get_entropy_count,
+    esdm_get_entropy_level, esdm_is_fully_seeded, esdm_jent_status_str, esdm_rng_fini,
+    esdm_rng_fini_priv, esdm_rng_init, esdm_rng_init_checked, esdm_rng_init_priv, esdm_selftest,
     esdm_status_json_str, esdm_status_str,
 };
+use zeroize::{Zeroize, Zeroizing};
+
+/// largest input `write-to-aux-pool` accepts, more cannot add entropy as the
+/// ESDM auxiliary pool is much smaller anyway
+const AUX_POOL_MAX_INPUT: u64 = 1 << 20;
+
+/// size of the chunks `get-random` fetches and writes out
+const GET_RANDOM_CHUNK: usize = 4096;
 
 #[derive(Debug, Args)]
 struct GetRandomArg {
@@ -167,9 +177,7 @@ fn wait_until_seeded(arg: &WaitUntilSeededArg) -> ExitCode {
     let mut try_counter = arg.tries;
 
     while try_counter > 0 {
-        if let Some(status) = esdm_is_fully_seeded()
-            && status
-        {
+        if esdm_is_fully_seeded() == Some(true) {
             println!("ESDM is fully seeded!");
             return ExitCode::SUCCESS;
         }
@@ -184,18 +192,50 @@ fn wait_until_seeded(arg: &WaitUntilSeededArg) -> ExitCode {
 }
 
 fn get_random(arg: &GetRandomArg) -> ExitCode {
-    let mut buf = vec![0u8; arg.size];
-    let mut rng = if arg.pr {
-        EsdmRng::new(rand_esdm::EsdmRngType::PredictionResistant)
+    let rng_type = if arg.pr {
+        EsdmRngType::PredictionResistant
     } else {
-        EsdmRng::new(rand_esdm::EsdmRngType::FullySeeded)
+        EsdmRngType::FullySeeded
     };
-    rng.try_fill_bytes(&mut buf).unwrap();
+    let mut rng = match EsdmRng::try_new(rng_type) {
+        Ok(rng) => rng,
+        Err(e) => {
+            eprintln!("Cannot init ESDM connection: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
 
-    if arg.hex {
-        print!("{}", hex::encode(buf));
-    } else {
-        std::io::stdout().write_all(&buf).unwrap();
+    // fetch and write in chunks: the requested size is not bounded and the
+    // random bytes should not linger in memory longer than needed
+    let mut buf = Zeroizing::new([0u8; GET_RANDOM_CHUNK]);
+    let mut stdout = std::io::stdout().lock();
+    let mut remaining = arg.size;
+    while remaining > 0 {
+        let chunk = &mut buf[..remaining.min(GET_RANDOM_CHUNK)];
+        if let Err(e) = rng.try_fill_bytes(chunk) {
+            eprintln!("Cannot get random bytes from ESDM: {e}");
+            return ExitCode::FAILURE;
+        }
+
+        let written = if arg.hex {
+            let mut hex = Zeroizing::new(hex::encode(&*chunk));
+            let ret = stdout.write_all(hex.as_bytes());
+            hex.zeroize();
+            ret
+        } else {
+            stdout.write_all(chunk)
+        };
+        if let Err(e) = written {
+            eprintln!("Cannot write random bytes: {e}");
+            return ExitCode::FAILURE;
+        }
+
+        remaining -= chunk.len();
+    }
+
+    if let Err(e) = stdout.flush() {
+        eprintln!("Cannot write random bytes: {e}");
+        return ExitCode::FAILURE;
     }
 
     ExitCode::SUCCESS
@@ -211,7 +251,10 @@ fn get_entropy_level() -> ExitCode {
 }
 
 fn get_entropy_count() -> ExitCode {
-    esdm_rng_init_checked();
+    if !esdm_rng_init() {
+        eprintln!("Cannot init ESDM connection. Exiting!");
+        return ExitCode::FAILURE;
+    }
     let ret = match esdm_get_entropy_count() {
         Ok(cnt) => {
             println!("Entropy count: {cnt}");
@@ -228,37 +271,51 @@ fn get_entropy_count() -> ExitCode {
 }
 
 fn write_to_aux_pool(arg: &WriteToAuxPoolArg) -> ExitCode {
-    esdm_rng_init_checked();
-    esdm_rng_init_priv_checked();
-
-    let mut exit_status = ExitCode::SUCCESS;
-
-    let mut stdin = std::io::stdin();
-    let mut buf = vec![];
-    if let Ok(size) = stdin.read_to_end(&mut buf) {
-        if esdm_add_entropy(&buf, u32::try_from(arg.ent_bits).unwrap()).is_err() {
-            exit_status = ExitCode::FAILURE;
-            eprintln!("Failed to seed ESDM, maybe root privileges missing?");
-        } else {
-            println!(
-                "Added {size} Byte input to ESDM Auxiliary Pool, accounted with {} Bit of entropy.",
-                arg.ent_bits
-            );
-        }
-    } else {
-        println!("Seeding ESDM Aux Pool failed!");
+    // read one byte more than allowed to detect oversized input
+    let mut buf = Zeroizing::new(Vec::new());
+    if let Err(e) = std::io::stdin()
+        .take(AUX_POOL_MAX_INPUT + 1)
+        .read_to_end(&mut buf)
+    {
+        eprintln!("Cannot read input: {e}");
+        return ExitCode::FAILURE;
+    }
+    if buf.len() as u64 > AUX_POOL_MAX_INPUT {
+        eprintln!("Input exceeds {AUX_POOL_MAX_INPUT} bytes, refusing to seed ESDM");
+        return ExitCode::FAILURE;
     }
 
+    let Ok(ent_bits) = u32::try_from(arg.ent_bits) else {
+        eprintln!("Entropy count {} is out of range", arg.ent_bits);
+        return ExitCode::FAILURE;
+    };
+
+    if !esdm_rng_init_priv() {
+        eprintln!("Cannot init privileged ESDM connection. Exiting!");
+        return ExitCode::FAILURE;
+    }
+
+    let exit_status = match esdm_add_entropy(&buf, ent_bits) {
+        Ok(()) => {
+            println!(
+                "Added {} Byte input to ESDM Auxiliary Pool, accounted with {ent_bits} Bit of entropy.",
+                buf.len()
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("Failed to seed ESDM: {e}. Missing root privileges?");
+            ExitCode::FAILURE
+        }
+    };
+
     esdm_rng_fini_priv();
-    esdm_rng_fini();
 
     exit_status
 }
 
 fn is_fully_seeded() -> ExitCode {
-    if let Some(status) = esdm_is_fully_seeded()
-        && status
-    {
+    if esdm_is_fully_seeded() == Some(true) {
         println!("ESDM is fully seeded!");
         return ExitCode::SUCCESS;
     }
@@ -268,7 +325,10 @@ fn is_fully_seeded() -> ExitCode {
 }
 
 fn crng_reseed() -> ExitCode {
-    esdm_rng_init_priv_checked();
+    if !esdm_rng_init_priv() {
+        eprintln!("Cannot init privileged ESDM connection. Exiting!");
+        return ExitCode::FAILURE;
+    }
     let ok = esdm_crng_reseed().is_ok();
     esdm_rng_fini_priv();
 
@@ -281,17 +341,19 @@ fn crng_reseed() -> ExitCode {
 }
 
 fn wait_until_seeding_necessary(arg: &WaitUntilSeedingNecessaryArg) -> ExitCode {
-    esdm_rng_init_checked();
+    if !esdm_rng_init() {
+        eprintln!("Cannot init ESDM connection. Exiting!");
+        return ExitCode::FAILURE;
+    }
 
-    let mut notifier = EsdmNotification::new();
-
-    let ret = if notifier
-        .wait_for_entropy_needed_timeout(Duration::from_secs(arg.timeout_secs))
-        .is_ok()
-    {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
+    let ret = match EsdmNotification::try_new().and_then(|mut notifier| {
+        notifier.wait_for_entropy_needed_timeout(Duration::from_secs(arg.timeout_secs))
+    }) {
+        Ok(_) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("Waiting for ESDM to need entropy failed: {e}");
+            ExitCode::FAILURE
+        }
     };
 
     esdm_rng_fini();
@@ -300,17 +362,21 @@ fn wait_until_seeding_necessary(arg: &WaitUntilSeedingNecessaryArg) -> ExitCode 
 }
 
 fn seed_from_os() -> ExitCode {
-    esdm_rng_init_priv_checked();
-
-    let mut exit_status = ExitCode::SUCCESS;
     // get 64 Byte from OS
-    let mut buf = vec![0u8; 64];
-    if getrandom::fill(&mut buf).is_err() {
-        esdm_rng_fini_priv();
+    let mut buf = Zeroizing::new([0u8; 64]);
+    if let Err(e) = getrandom::fill(&mut *buf) {
+        eprintln!("Cannot get random bytes from the OS: {e}");
         return ExitCode::FAILURE;
     }
 
-    if esdm_add_entropy(&buf, u32::try_from(buf.len() * 8).unwrap()).is_err() {
+    if !esdm_rng_init_priv() {
+        eprintln!("Cannot init privileged ESDM connection. Exiting!");
+        return ExitCode::FAILURE;
+    }
+
+    let mut exit_status = ExitCode::SUCCESS;
+
+    if esdm_add_entropy(&*buf, u32::try_from(buf.len() * 8).unwrap()).is_err() {
         exit_status = ExitCode::FAILURE;
         eprintln!("Failed to seed ESDM, maybe root privileges missing?");
     } else {
@@ -350,25 +416,19 @@ fn stress_multi_threading(num_threads: Option<usize>) -> ExitCode {
 
     let mut threads = vec![];
 
-    let rng = &mut EsdmRng::new(rand_esdm::EsdmRngType::FullySeeded);
+    let rng = &mut EsdmRng::new(EsdmRngType::FullySeeded);
     let _ = rng.try_next_u64().unwrap();
     println!("Got bytes on a single core! Start multi-core stress test!");
 
-    let cores = if let Some(c) = num_threads {
-        c
-    } else {
-        std::thread::available_parallelism().unwrap().into()
-    };
+    let cores = num_threads.unwrap_or_else(|| std::thread::available_parallelism().unwrap().into());
     println!("Use {cores} threads");
 
     let (tx, rx) = mpsc::channel();
 
     for i in 0..cores {
         println!("Start thread {i}");
-        let mut tx1 = tx.clone();
-        threads.push(std::thread::spawn(move || {
-            stress_one_core(&mut tx1);
-        }));
+        let tx = tx.clone();
+        threads.push(std::thread::spawn(move || stress_one_core(&tx)));
     }
 
     for received in rx {
@@ -382,12 +442,11 @@ fn stress_multi_threading(num_threads: Option<usize>) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn stress_one_core(tx: &mut Sender<String>) {
-    let mut rng = rand_esdm::EsdmRng::new(rand_esdm::EsdmRngType::FullySeeded);
+fn stress_one_core(tx: &Sender<String>) {
+    let mut rng = EsdmRng::new(EsdmRngType::FullySeeded);
     let mut mean_duration = 0.0;
     let alpha = 0.2;
     let mut i: u64 = 0;
-    //for _ in 0..10000000 {
     loop {
         let start = Instant::now();
         let rnd_number = rng.try_next_u32().unwrap();
@@ -411,15 +470,13 @@ fn stress_delay() -> ExitCode {
 }
 
 fn measure_speed() -> ExitCode {
-    use std::time::Instant;
-
     let sizes: Vec<usize> = (0..12).map(|x| 1 << x).collect();
 
     for m in ["Fully Seeded", "Prediction Resistant"] {
         let mut rng = if m == "Fully Seeded" {
-            EsdmRng::new(rand_esdm::EsdmRngType::FullySeeded)
+            EsdmRng::new(EsdmRngType::FullySeeded)
         } else {
-            EsdmRng::new(rand_esdm::EsdmRngType::PredictionResistant)
+            EsdmRng::new(EsdmRngType::PredictionResistant)
         };
 
         let iterations = if m == "Fully Seeded" { 20000 } else { 100 };
@@ -466,7 +523,7 @@ fn stress_multi_process() -> ExitCode {
 
     // test if fds are leaking
     esdm_rng_init_checked();
-    let mut rng = EsdmRng::new(rand_esdm::EsdmRngType::FullySeeded);
+    let mut rng = EsdmRng::new(EsdmRngType::FullySeeded);
     for _ in 0..100 {
         let r = rng.try_next_u64().unwrap();
         println!("rnd: {r}");

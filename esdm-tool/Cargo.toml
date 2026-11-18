@@ -3,6 +3,7 @@ name = "esdm-tool"
 license = "MIT"
 repository = "https://github.com/thillux/rand-esdm"
 edition.workspace = true
+rust-version.workspace = true
 description = "provides small tool to query and use ESDM"
 keywords = ["rand", "random", "esdm", "rng", "cli"]
 categories = ["cryptography"]
@@ -19,6 +20,7 @@ hex = { workspace = true }
 rand_core = { workspace = true }
 rand-esdm = { workspace = true }
 getrandom = { workspace = true }
+zeroize = { workspace = true }
 
 [lints]
 workspace = true
