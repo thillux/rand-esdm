@@ -25,25 +25,29 @@ const TIMEOUT: Duration = Duration::from_secs(10);
 const CHUNK: usize = 32;
 
 fn main() -> std::io::Result<()> {
+    let conn = EsdmConnection::try_new()?;
     // adding entropy is privileged
     let priv_conn = EsdmPrivConnection::try_new()?;
     let mut notification = EsdmNotification::try_new()?;
 
     println!(
         "waiting for the ESDM to drop below {} bits",
-        EsdmConnection::try_new()?.write_wakeup_thresh()?
+        conn.write_wakeup_thresh()?
     );
 
     for _ in 0..ROUNDS {
         match notification.wait_for_entropy_needed_timeout(TIMEOUT) {
-            Ok(count) => {
+            Ok(()) => {
                 let mut entropy = Zeroizing::new([0u8; CHUNK]);
                 read_entropy_source(&mut *entropy)?;
                 // credit only the entropy the source really delivers, the OS
                 // RNG output carries full entropy
                 let bits = u32::try_from(CHUNK * 8).expect("small constant");
                 priv_conn.add_entropy(&*entropy, bits)?;
-                println!("ESDM asked for entropy at {count} bits, added {bits} bits");
+                println!(
+                    "ESDM asked for entropy, added {bits} bits, auxiliary pool: {} bits",
+                    conn.entropy_count()?
+                );
             }
             Err(e) if e.kind() == ErrorKind::TimedOut => {
                 println!("ESDM did not ask for entropy within {TIMEOUT:?}");

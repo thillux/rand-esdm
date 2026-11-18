@@ -506,6 +506,20 @@ fn check_server_hangs(server: &mut Server) {
         rng.try_fill_bytes(&mut [0u8; 32])
     });
 
+    // waiting for a request for entropy does not talk to the server, so its
+    // timeout bounds it also now
+    let mut notification = EsdmNotification::try_new().unwrap();
+    let start = Instant::now();
+    match notification.wait_for_entropy_needed_timeout(Duration::from_millis(300)) {
+        Ok(()) => {}
+        Err(e) => assert_eq!(e.kind(), ErrorKind::TimedOut, "{e:?}"),
+    }
+    assert!(
+        start.elapsed() < Duration::from_secs(2),
+        "{:?}",
+        start.elapsed()
+    );
+
     // and everything works again once it answers
     server.signal(libc::SIGCONT);
     assert_all_work(&conn, &mut rng);

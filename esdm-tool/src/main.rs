@@ -369,7 +369,7 @@ fn wait_until_seeding_necessary(arg: &WaitUntilSeedingNecessaryArg) -> ExitCode 
     match EsdmNotification::try_new().and_then(|mut notifier| {
         notifier.wait_for_entropy_needed_timeout(Duration::from_secs(arg.timeout_secs))
     }) {
-        Ok(_) => ExitCode::SUCCESS,
+        Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("Waiting for ESDM to need entropy failed: {e}");
             ExitCode::FAILURE

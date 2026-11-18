@@ -8,7 +8,6 @@ use std::time::{Duration, Instant};
 
 use esdm_sys::esdm_aux;
 
-use crate::connection::EsdmConnection;
 use crate::rpc::rpc_error;
 
 /// number of live [`EsdmNotification`] handles
@@ -84,10 +83,14 @@ fn monotonic_deadline(dur: Duration) -> Result<esdm_aux::timespec, Error> {
 /// waits for the ESDM server to ask for entropy
 ///
 /// The ESDM signals a semaphore once its entropy level drops below
-/// [`EsdmConnection::write_wakeup_thresh`]. A process which can provide
+/// [`crate::EsdmConnection::write_wakeup_thresh`]. A process which can provide
 /// entropy, e.g. from a hardware RNG, waits for that and then adds entropy
 /// with [`crate::EsdmPrivConnection::add_entropy`]. Attaching to the semaphore
 /// requires root.
+///
+/// Waiting only involves the semaphore, not the server: it neither needs a
+/// connection nor notices a server which stopped or hangs. The calls which
+/// follow a wake up report that.
 ///
 /// Several handles may exist at once. They share the process wide state of the
 /// aux client library and their waits take turns.
@@ -101,7 +104,7 @@ fn monotonic_deadline(dur: Duration) -> Result<esdm_aux::timespec, Error> {
 /// let mut notification = EsdmNotification::try_new()?;
 /// loop {
 ///     match notification.wait_for_entropy_needed_timeout(Duration::from_secs(60)) {
-///         Ok(_) => {
+///         Ok(()) => {
 ///             let entropy = [0u8; 32]; // read from your entropy source instead
 ///             priv_conn.add_entropy(&entropy, 256)?;
 ///         }
@@ -113,10 +116,9 @@ fn monotonic_deadline(dur: Duration) -> Result<esdm_aux::timespec, Error> {
 /// ```
 #[derive(Debug)]
 pub struct EsdmNotification {
-    // fetches the entropy count after a wait. Being private, it also keeps
-    // the handle from being built without `try_new`, which initializes the
-    // aux client library that `Drop` releases again.
-    conn: EsdmConnection,
+    // keeps the handle from being built without `try_new`, which initializes
+    // the aux client library that `Drop` releases again
+    _private: (),
 }
 
 impl Drop for EsdmNotification {
@@ -150,7 +152,6 @@ impl EsdmNotification {
     ///
     /// Fails with [`ErrorKind::PermissionDenied`] without root privileges.
     pub fn try_new() -> Result<Self, Error> {
-        let conn = EsdmConnection::try_new()?;
         let mut users = AUX_USERS.lock().unwrap_or_else(PoisonError::into_inner);
         if *users == 0 {
             // SAFETY: no handle exists and `AUX_USERS` is held, so no other
@@ -165,42 +166,42 @@ impl EsdmNotification {
         }
         *users += 1;
 
-        Ok(Self { conn })
+        Ok(Self { _private: () })
     }
 
-    /// waits up to `dur` until the ESDM server needs entropy and returns the
-    /// entropy count of its auxiliary pool
+    /// waits up to `dur` until the ESDM server asks for entropy
     ///
-    /// Fails with [`ErrorKind::TimedOut`] if the server did not ask for
-    /// entropy in time. Waits of several handles take turns, the time spent
-    /// waiting for the turn counts towards `dur` as well.
-    pub fn wait_for_entropy_needed_timeout(&mut self, dur: Duration) -> Result<u32, Error> {
+    /// Returns `Ok(())` once it asked, or fails with [`ErrorKind::TimedOut`]
+    /// if it did not ask within `dur`, which bounds the whole call. Waits of
+    /// several handles take turns, the time spent waiting for the turn counts
+    /// towards `dur` as well.
+    ///
+    /// The ESDM keeps asking as long as its entropy level stays below the
+    /// threshold, so a wait returns right away until enough entropy was
+    /// added. [`crate::EsdmConnection::entropy_count`] tells the current
+    /// level.
+    pub fn wait_for_entropy_needed_timeout(&mut self, dur: Duration) -> Result<(), Error> {
         let mut deadline = monotonic_deadline(dur)?;
 
-        {
-            let _wait = lock_aux_wait(Instant::now().checked_add(dur))?;
-            loop {
-                // SAFETY: `self` keeps the aux library initialized, as fini
-                // only runs once the last handle is dropped. Init only runs
-                // while no handle exists, and `AUX_WAIT` serializes the waits.
-                // The library only reads `deadline`.
-                let ret =
-                    unsafe { esdm_aux::esdm_aux_timedwait_for_need_entropy(&raw mut deadline) };
-                if ret == 0 {
-                    break;
-                }
+        let _wait = lock_aux_wait(Instant::now().checked_add(dur))?;
+        loop {
+            // SAFETY: `self` keeps the aux library initialized, as fini
+            // only runs once the last handle is dropped. Init only runs
+            // while no handle exists, and `AUX_WAIT` serializes the waits.
+            // The library only reads `deadline`.
+            let ret = unsafe { esdm_aux::esdm_aux_timedwait_for_need_entropy(&raw mut deadline) };
+            if ret == 0 {
+                return Ok(());
+            }
 
-                // the call follows sem_clockwait(): -1 and the reason in errno
-                let err = Error::last_os_error();
-                match err.raw_os_error() {
-                    Some(EINTR) => {}
-                    Some(ETIMEDOUT) => return Err(timed_out()),
-                    _ => return Err(err),
-                }
+            // the call follows sem_clockwait(): -1 and the reason in errno
+            let err = Error::last_os_error();
+            match err.raw_os_error() {
+                Some(EINTR) => {}
+                Some(ETIMEDOUT) => return Err(timed_out()),
+                _ => return Err(err),
             }
         }
-
-        self.conn.entropy_count()
     }
 }
 

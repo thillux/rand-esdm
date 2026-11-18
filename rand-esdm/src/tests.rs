@@ -205,7 +205,7 @@ fn test_notification_handles_and_timeout() {
     match second.wait_for_entropy_needed_timeout(std::time::Duration::from_millis(100)) {
         Err(e) => assert_eq!(e.kind(), std::io::ErrorKind::TimedOut),
         // the server may really need entropy right now
-        Ok(cnt) => println!("ESDM needs entropy, count: {cnt}"),
+        Ok(()) => println!("ESDM needs entropy"),
     }
 }
 

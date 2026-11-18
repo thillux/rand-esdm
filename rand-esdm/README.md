@@ -147,8 +147,9 @@ Complete programs in [`examples`](examples), run them with
 - New: typed and JSON status reports (`conn.status()`, `conn.drng_status()`,
   ...), `priv_conn.selftest()`, `priv_conn.set_es_rate()`, and
   `TryCryptoRng` for `EsdmRng`.
-- `EsdmNotification` holds its own connection and no longer implements
-  `Default`.
+- `EsdmNotification::wait_for_entropy_needed_timeout` returns `()` instead
+  of the entropy count, which `conn.entropy_count()` fetches, so its timeout
+  bounds the whole call. `EsdmNotification` no longer implements `Default`.
 - The status and self test types are `#[non_exhaustive]`.
 - ESDM 1.2.4 or later is required.
 

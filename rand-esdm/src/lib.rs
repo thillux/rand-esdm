@@ -106,8 +106,10 @@
 //! | started (again) | nothing: existing connections and RNGs work again without being created anew |
 //!
 //! [`esdm_is_fully_seeded`] and [`esdm_get_entropy_level`] return `None` in
-//! these cases, and [`EsdmNotification::wait_for_entropy_needed_timeout`]
-//! times out.
+//! these cases. [`EsdmNotification::wait_for_entropy_needed_timeout`] only
+//! watches a semaphore: it times out if no server ever asked for entropy,
+//! but a request raised before the server stopped or hung is still
+//! delivered. The calls which follow report the state of the server then.
 //!
 //! # Examples
 //!
