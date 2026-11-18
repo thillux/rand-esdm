@@ -35,7 +35,14 @@
 
       devShells.x86_64-linux.default = pkgs.mkShell {
         inherit buildInputs;
-        inherit nativeBuildInputs;
+        nativeBuildInputs = nativeBuildInputs ++ (with pkgs; [
+          cargo
+          rustc
+          rust-analyzer
+          clippy
+          rustfmt
+        ]);
+        RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
       };
     };
 }
