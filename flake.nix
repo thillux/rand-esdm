@@ -2,45 +2,22 @@
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    esdm = {
+      url = "github:thillux/esdm/mtheil/1.2.4-finalize";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-utils.follows = "flake-utils";
+    };
     gitignore = {
       url = "github:hercules-ci/gitignore.nix";
       flake = false;
     };
   };
 
-  outputs = { self, nixpkgs, gitignore, flake-utils, ... }:
+  outputs = { self, nixpkgs, gitignore, flake-utils, esdm, ... }:
     let
       pkgs = nixpkgs.legacyPackages.x86_64-linux;
-      buildInputs = with pkgs; [
-        ((esdm.override {
-          jitterentropy = pkgs.jitterentropy.overrideAttrs (
-                _: prevAttrs: {
-                  version = "3.7.0";
-                  src = pkgs.fetchFromGitHub {
-                    owner = "smuellerDD";
-                    repo = "jitterentropy-library";
-                    rev = "e7bf6282407d1ea52815cdd7746b4c086c0b19af";
-                    hash = "sha256-PC8CQBRjJKWWfSLuEWyl09yjxZ9XS2ZGI7OMSFPwZ48=";
-                  };
-                  # for secure memory
-                  propagatedBuildInputs = [
-                    pkgs.openssl
-                  ];
-                  patches = [ ];
-                  postPatch = ''
-                    sed -i '/add_subdirectory(tests\/gcd)/d' CMakeLists.txt
-                  '';
-                  # better find openssl
-                  nativeBuildInputs = prevAttrs.nativeBuildInputs ++ [ pkgs.pkg-config ];
-                  # enables secure memory mode
-                  cmakeFlags = [
-                    "-DINTERNAL_TIMER=OFF"
-                    "-DEXTERNAL_CRYPTO=OPENSSL"
-                    "-DBUILD_SHARED_LIBS=ON"
-                  ];
-                }
-              );
-        }))
+      buildInputs = [
+        esdm.packages.x86_64-linux.esdm
       ];
       nativeBuildInputs = with pkgs; [ pkg-config rustPlatform.bindgenHook ];
       inherit (import gitignore { inherit (pkgs) lib; }) gitignoreSource;

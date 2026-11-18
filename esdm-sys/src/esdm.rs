@@ -3,5 +3,6 @@
 #![allow(deref_nullptr)]
 #![allow(clippy::module_name_repetitions)]
 #![allow(clippy::all)]
+#![allow(clippy::pedantic)]
 
 include!(concat!(env!("OUT_DIR"), "/esdm-bindings.rs"));

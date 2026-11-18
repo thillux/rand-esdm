@@ -1,5 +1,29 @@
 {
   "nodes": {
+    "esdm": {
+      "inputs": {
+        "flake-utils": [
+          "flake-utils"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1794602671,
+        "narHash": "sha256-ATKPSxbBOAyno/kBc0hykm1jX79JorUPWmin3olqd18=",
+        "owner": "thillux",
+        "repo": "esdm",
+        "rev": "984154f7c357a8fbab02a8c6aaefff154db565cd",
+        "type": "github"
+      },
+      "original": {
+        "owner": "thillux",
+        "ref": "mtheil/1.2.4-finalize",
+        "repo": "esdm",
+        "type": "github"
+      }
+    },
     "flake-utils": {
       "inputs": {
         "systems": "systems"
@@ -52,6 +76,7 @@
     },
     "root": {
       "inputs": {
+        "esdm": "esdm",
         "flake-utils": "flake-utils",
         "gitignore": "gitignore",
         "nixpkgs": "nixpkgs"

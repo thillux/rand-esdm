@@ -8,10 +8,11 @@ use std::{
 
 use clap::{Args, Parser, Subcommand};
 use rand_esdm::{
-    EsdmNotification, EsdmRng, esdm_add_entropy, esdm_crng_reseed, esdm_get_entropy_count,
-    esdm_get_entropy_level, esdm_is_fully_seeded, esdm_jent_status_str, esdm_rng_fini,
-    esdm_rng_fini_priv, esdm_rng_init, esdm_rng_init_checked, esdm_rng_init_priv_checked,
-    esdm_status_str,
+    EsdmNotification, EsdmRng, esdm_add_entropy, esdm_crng_reseed, esdm_drng_status_json_str,
+    esdm_drng_status_pr_json_str, esdm_get_entropy_count, esdm_get_entropy_level,
+    esdm_is_fully_seeded, esdm_jent_status_str, esdm_rng_fini, esdm_rng_fini_priv, esdm_rng_init,
+    esdm_rng_init_checked, esdm_rng_init_priv, esdm_rng_init_priv_checked, esdm_selftest,
+    esdm_status_json_str, esdm_status_str,
 };
 
 #[derive(Debug, Args)]
@@ -44,10 +45,20 @@ struct WriteToAuxPoolArg {
     ent_bits: usize,
 }
 
+#[derive(Debug, Args)]
+struct DrngStatusArg {
+    /// node whose DRNG instance is queried, or "pr" for the prediction resistant instance
+    #[arg(required = true)]
+    instance: String,
+}
+
 #[derive(Debug, Subcommand)]
 enum ToolCommand {
     IsFullySeeded,
     Status,
+    StatusJson,
+    DrngStatus(DrngStatusArg),
+    Selftest,
     JentStatus,
     EntropyLevel,
     EntropyCount,
@@ -71,42 +82,85 @@ struct ToolArgs {
     command: ToolCommand,
 }
 
-fn handle_status() -> ExitCode {
+/// prints the status string returned by `fetch` over an unprivileged connection
+fn print_status(fetch: impl FnOnce() -> std::io::Result<String>, name: &str) -> ExitCode {
     if !esdm_rng_init() {
         println!("Cannot init ESDM connection. Exiting!");
         return ExitCode::FAILURE;
     }
 
-    if let Ok(status) = esdm_status_str() {
-        print!("{status}");
-    } else {
-        println!("Cannot get ESDM status string. Exiting!");
-        esdm_rng_fini();
-        return ExitCode::FAILURE;
-    }
+    let ret = match fetch() {
+        Ok(status) => {
+            print!("{status}");
+            if !status.ends_with('\n') {
+                println!();
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("Cannot get ESDM {name}: {e}. Exiting!");
+            ExitCode::FAILURE
+        }
+    };
 
     esdm_rng_fini();
 
-    ExitCode::SUCCESS
+    ret
+}
+
+fn handle_status() -> ExitCode {
+    print_status(esdm_status_str, "status string")
+}
+
+fn handle_status_json() -> ExitCode {
+    print_status(esdm_status_json_str, "status JSON")
+}
+
+fn handle_drng_status(arg: &DrngStatusArg) -> ExitCode {
+    if arg.instance.eq_ignore_ascii_case("pr") {
+        return print_status(esdm_drng_status_pr_json_str, "PR DRNG status");
+    }
+
+    let Ok(node) = arg.instance.parse::<u32>() else {
+        eprintln!("DRNG instance must be a node number or \"pr\"");
+        return ExitCode::FAILURE;
+    };
+
+    print_status(|| esdm_drng_status_json_str(node), "DRNG status")
+}
+
+fn handle_selftest() -> ExitCode {
+    if !esdm_rng_init_priv() {
+        println!("Cannot init privileged ESDM connection. Exiting!");
+        return ExitCode::FAILURE;
+    }
+
+    let ret = match esdm_selftest() {
+        Ok((result, passed)) => {
+            println!("Crypto self tests: {:?}", result.crypto_state);
+            println!(
+                "Entropy source self tests: {:?} ({} tested, {} failed)",
+                result.es_state, result.es_sources, result.es_failures
+            );
+            if passed {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            }
+        }
+        Err(e) => {
+            eprintln!("Self test failed: {e}. Missing root privileges?");
+            ExitCode::FAILURE
+        }
+    };
+
+    esdm_rng_fini_priv();
+
+    ret
 }
 
 fn handle_jent_status() -> ExitCode {
-    if !esdm_rng_init() {
-        println!("Cannot init ESDM connection. Exiting!");
-        return ExitCode::FAILURE;
-    }
-
-    if let Ok(status) = esdm_jent_status_str() {
-        print!("{status}");
-    } else {
-        println!("Cannot get ESDM jent status string. Exiting!");
-        esdm_rng_fini();
-        return ExitCode::FAILURE;
-    }
-
-    esdm_rng_fini();
-
-    ExitCode::SUCCESS
+    print_status(esdm_jent_status_str, "jent status string")
 }
 
 fn wait_until_seeded(arg: &WaitUntilSeededArg) -> ExitCode {
@@ -450,6 +504,9 @@ fn main() -> ExitCode {
     match args.command {
         ToolCommand::IsFullySeeded => is_fully_seeded(),
         ToolCommand::Status => handle_status(),
+        ToolCommand::StatusJson => handle_status_json(),
+        ToolCommand::DrngStatus(arg) => handle_drng_status(&arg),
+        ToolCommand::Selftest => handle_selftest(),
         ToolCommand::JentStatus => handle_jent_status(),
         ToolCommand::WaitUntilSeeded(arg) => wait_until_seeded(&arg),
         ToolCommand::GetRandom(arg) => get_random(&arg),

@@ -24,6 +24,7 @@ pkg-config = { version = "0.3.33" }
 rand = { version = "0.10.2" }
 rand_core = { version = "0.10.1" }
 rand_xoshiro = { version = "0.8.1" }
+serde_json = { version = "1.0.149" }
 rand-esdm = { path = "rand-esdm", version = "0.4.0" }
 
 [workspace.lints.clippy]

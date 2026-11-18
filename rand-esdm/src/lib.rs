@@ -1,6 +1,6 @@
-use libc::ETIMEDOUT;
+use libc::{EAGAIN, EINTR, EMSGSIZE, ETIMEDOUT};
 use rand_core::TryRng;
-use std::ffi::c_char;
+use std::ffi::{CString, c_char};
 use std::mem::MaybeUninit;
 use std::os::raw::c_int;
 
@@ -18,15 +18,45 @@ use esdm_sys::esdm_aux;
 // how often to retry RPC calls before returning an error
 const ESDM_RETRY_COUNT: u32 = 5;
 
-/// retries an ESDM RPC call up to [`ESDM_RETRY_COUNT`] times until it reports success
+// largest status document the ESDM RPC protocol is able to transport
+const ESDM_STATUS_MAX_LEN: usize = 65536;
+
+/// converts a negative errno-style ESDM return value into an [`Error`]
+fn rpc_error(ret: impl Into<i64>, err_msg: &'static str) -> Error {
+    let errno = i32::try_from(-ret.into()).unwrap_or(libc::EINVAL);
+    let os_err = Error::from_raw_os_error(errno);
+    Error::new(os_err.kind(), format!("{err_msg}: {os_err}"))
+}
+
+/// retries an idempotent ESDM RPC call up to [`ESDM_RETRY_COUNT`] times until
+/// it reports success
+///
+/// Only use this for calls which can safely be issued multiple times: since
+/// ESDM 1.2.4, a request without an answer may still have been processed by
+/// the server.
 fn retry_rpc(mut rpc: impl FnMut() -> c_int, err_msg: &'static str) -> Result<(), Error> {
+    let mut ret = 0;
     for _ in 0..ESDM_RETRY_COUNT {
-        if rpc() == 0 {
+        ret = rpc();
+        if ret == 0 {
             return Ok(());
         }
     }
 
-    Err(Error::other(err_msg))
+    Err(rpc_error(ret, err_msg))
+}
+
+/// issues an ESDM RPC call, whose effect adds up, exactly once
+///
+/// It is retried only if it was interrupted before being sent to the server.
+fn once_rpc(mut rpc: impl FnMut() -> c_int, err_msg: &'static str) -> Result<(), Error> {
+    loop {
+        match rpc() {
+            0 => return Ok(()),
+            ret if ret == -EINTR => {}
+            ret => return Err(rpc_error(ret, err_msg)),
+        }
+    }
 }
 
 static LIB_MUTEX_UNPRIV: Mutex<u32> = Mutex::new(0u32);
@@ -83,10 +113,18 @@ pub fn esdm_rng_fini() {
     *guard -= 1;
 }
 
-pub fn esdm_set_max_online_nodes(nodes: u32) {
-    unsafe {
-        esdm_rpcc_set_max_online_nodes(nodes);
+/// Limits the number of parallel RPC connections the client library uses.
+///
+/// Since ESDM 1.2.4 the limit can only be lowered and has to be set before the
+/// RPC connection is initialized (e.g. by [`esdm_rng_init`] or
+/// [`EsdmRng::new`]), as connections of an initialized service are not resized.
+pub fn esdm_set_max_online_nodes(nodes: u32) -> Result<(), Error> {
+    let ret = unsafe { esdm_rpcc_set_max_online_nodes(nodes) };
+    if ret < 0 {
+        return Err(rpc_error(ret, "ESDM error set max online nodes"));
     }
+
+    Ok(())
 }
 
 /// initializes the client connection to ESDM, asserts if something goes wrong
@@ -159,21 +197,43 @@ impl TryRng for EsdmRng {
     }
 
     fn try_fill_bytes(&mut self, dst: &mut [u8]) -> Result<(), Self::Error> {
-        for _ in 0..ESDM_RETRY_COUNT {
-            let ret_size = match self.rng_type {
+        let mut filled = 0;
+        let mut failures = 0;
+        let mut last_ret: isize = 0;
+
+        while filled < dst.len() {
+            if failures == ESDM_RETRY_COUNT {
+                return Err(rpc_error(
+                    i64::try_from(last_ret).unwrap_or(-i64::from(libc::EIO)),
+                    "Unable to fetch random bytes from ESDM",
+                ));
+            }
+
+            let remaining = &mut dst[filled..];
+            let ret = match self.rng_type {
                 EsdmRngType::FullySeeded => unsafe {
-                    esdm::esdm_rpcc_get_random_bytes_full(dst.as_mut_ptr(), dst.len())
+                    esdm::esdm_rpcc_get_random_bytes_full(remaining.as_mut_ptr(), remaining.len())
                 },
                 EsdmRngType::PredictionResistant => unsafe {
-                    esdm::esdm_rpcc_get_random_bytes_pr(dst.as_mut_ptr(), dst.len())
+                    esdm::esdm_rpcc_get_random_bytes_pr(remaining.as_mut_ptr(), remaining.len())
                 },
             };
-            if ret_size == isize::try_from(dst.len()).unwrap() {
-                return Ok(());
+
+            match usize::try_from(ret) {
+                // short reads are possible, continue with the remainder
+                Ok(n) if n > 0 => filled += n.min(remaining.len()),
+                _ => {
+                    last_ret = if ret == 0 {
+                        -isize::try_from(EAGAIN).unwrap()
+                    } else {
+                        ret
+                    };
+                    failures += 1;
+                }
             }
         }
 
-        Err(Error::other("Unable to fetch random bytes from ESDM"))
+        Ok(())
     }
 }
 
@@ -182,14 +242,14 @@ impl TryRng for EsdmRng {
  */
 /// writes data into the ESDM auxiliary pool without crediting entropy for it
 pub fn esdm_write_data(data: &[u8]) -> Result<(), Error> {
-    retry_rpc(
+    once_rpc(
         || unsafe { esdm::esdm_rpcc_write_data(data.as_ptr(), data.len()) },
         "ESDM error write",
     )
 }
 
 pub fn esdm_crng_reseed() -> Result<(), Error> {
-    retry_rpc(
+    once_rpc(
         || unsafe { esdm::esdm_rpcc_rnd_reseed_crng() },
         "ESDM error reseed crng",
     )
@@ -211,7 +271,7 @@ pub fn esdm_get_entropy_count() -> Result<u32, Error> {
 }
 
 pub fn esdm_add_entropy(entropy_bytes: &[u8], entropy_count: u32) -> Result<(), Error> {
-    retry_rpc(
+    once_rpc(
         || unsafe {
             esdm::esdm_rpcc_rnd_add_entropy(
                 entropy_bytes.as_ptr(),
@@ -224,14 +284,14 @@ pub fn esdm_add_entropy(entropy_bytes: &[u8], entropy_count: u32) -> Result<(), 
 }
 
 pub fn esdm_add_to_entropy_count(entropy_increment: u32) -> Result<(), Error> {
-    retry_rpc(
+    once_rpc(
         || unsafe { esdm::esdm_rpcc_rnd_add_to_ent_cnt(entropy_increment) },
         "ESDM error add entropy count",
     )
 }
 
 pub fn esdm_clear_pool() -> Result<(), Error> {
-    retry_rpc(
+    once_rpc(
         || unsafe { esdm::esdm_rpcc_rnd_clear_pool() },
         "ESDM error clear pool",
     )
@@ -248,15 +308,35 @@ pub fn esdm_write_wakeup_thresh() -> Result<u32, Error> {
 }
 
 /// fetches a NUL-terminated status string via the given RPC call
+///
+/// The buffer grows up to [`ESDM_STATUS_MAX_LEN`] if the server reports
+/// `-EMSGSIZE` (ESDM >= 1.2.4 no longer truncates status reports silently).
 fn fetch_status_str(
-    rpc_status: unsafe extern "C" fn(*mut c_char, usize) -> c_int,
+    mut rpc_status: impl FnMut(*mut c_char, usize) -> c_int,
     err_msg: &'static str,
 ) -> Result<String, Error> {
     let mut status_bytes = vec![0u8; 8192];
-    retry_rpc(
-        || unsafe { rpc_status(status_bytes.as_mut_ptr().cast::<c_char>(), status_bytes.len()) },
-        err_msg,
-    )?;
+    let mut failures = 0;
+
+    loop {
+        status_bytes.fill(0);
+        let ret = rpc_status(
+            status_bytes.as_mut_ptr().cast::<c_char>(),
+            status_bytes.len(),
+        );
+        match ret {
+            0 => break,
+            ret if ret == -EMSGSIZE && status_bytes.len() < ESDM_STATUS_MAX_LEN => {
+                status_bytes.resize(ESDM_STATUS_MAX_LEN, 0);
+            }
+            ret => {
+                failures += 1;
+                if failures == ESDM_RETRY_COUNT {
+                    return Err(rpc_error(ret, err_msg));
+                }
+            }
+        }
+    }
 
     let nul_pos = status_bytes
         .iter()
@@ -267,21 +347,138 @@ fn fetch_status_str(
 }
 
 pub fn esdm_jent_status_str() -> Result<String, Error> {
-    fetch_status_str(esdm::esdm_rpcc_jent_status, "ESDM error jent status")
+    fetch_status_str(
+        |buf, len| unsafe { esdm::esdm_rpcc_jent_status(buf, len) },
+        "ESDM error jent status",
+    )
 }
 
+/// human readable status of the ESDM
+///
+/// Since ESDM 1.2.4 this text is rendered from the JSON status document and
+/// its format is not meant to be parsed, use [`esdm_status_json_str`] instead.
 pub fn esdm_status_str() -> Result<String, Error> {
-    fetch_status_str(esdm::esdm_rpcc_status, "ESDM error status")
+    fetch_status_str(
+        |buf, len| unsafe { esdm::esdm_rpcc_status(buf, len) },
+        "ESDM error status",
+    )
 }
 
-/// initializes an ESDM connection, extracts a value from the status string and
-/// releases the connection again
-fn with_status<T>(parse: impl FnOnce(&str) -> Option<T>) -> Option<T> {
+/// status of the ESDM as JSON document (ESDM >= 1.2.4)
+pub fn esdm_status_json_str() -> Result<String, Error> {
+    fetch_status_str(
+        |buf, len| unsafe { esdm::esdm_rpcc_status_json(buf, len) },
+        "ESDM error status json",
+    )
+}
+
+/// status of the DRNG instance serving the given node as JSON document
+/// (ESDM >= 1.2.4)
+pub fn esdm_drng_status_json_str(node: u32) -> Result<String, Error> {
+    fetch_status_str(
+        |buf, len| unsafe { esdm::esdm_rpcc_drng_status_json(node, buf, len) },
+        "ESDM error DRNG status json",
+    )
+}
+
+/// status of the prediction resistant DRNG instance as JSON document
+/// (ESDM >= 1.2.4)
+pub fn esdm_drng_status_pr_json_str() -> Result<String, Error> {
+    fetch_status_str(
+        |buf, len| unsafe { esdm::esdm_rpcc_drng_status_pr_json(buf, len) },
+        "ESDM error PR DRNG status json",
+    )
+}
+
+/// state of a group of ESDM self tests
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EsdmSelftestState {
+    Undone,
+    Passed,
+    Failed,
+}
+
+impl From<esdm::esdm_rpcc_selftest_state> for EsdmSelftestState {
+    fn from(state: esdm::esdm_rpcc_selftest_state) -> Self {
+        match state {
+            esdm::esdm_rpcc_selftest_state::esdm_rpcc_selftest_undone => Self::Undone,
+            esdm::esdm_rpcc_selftest_state::esdm_rpcc_selftest_passed => Self::Passed,
+            esdm::esdm_rpcc_selftest_state::esdm_rpcc_selftest_failed => Self::Failed,
+        }
+    }
+}
+
+/// outcome of an ESDM self test run, see [`esdm_selftest`]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EsdmSelftestResult {
+    /// state of the self tests of the hash and the DRNG
+    pub crypto_state: EsdmSelftestState,
+    /// state of the self tests of the entropy sources
+    pub es_state: EsdmSelftestState,
+    /// number of entropy sources tested
+    pub es_sources: u32,
+    /// number of entropy sources which failed their self test
+    pub es_failures: u32,
+}
+
+/// runs the ESDM self tests now (privileged interface, ESDM >= 1.2.4)
+///
+/// Returns the outcome and whether every self test passed (`Ok(true)`), or
+/// an error if the server could not be asked.
+pub fn esdm_selftest() -> Result<(EsdmSelftestResult, bool), Error> {
+    let mut result = esdm::esdm_rpcc_selftest_result {
+        crypto_state: esdm::esdm_rpcc_selftest_state::esdm_rpcc_selftest_undone,
+        es_state: esdm::esdm_rpcc_selftest_state::esdm_rpcc_selftest_undone,
+        es_sources: 0,
+        es_failures: 0,
+    };
+
+    let ret = loop {
+        let ret = unsafe { esdm::esdm_rpcc_selftest(&raw mut result) };
+        if ret != -EINTR {
+            break ret;
+        }
+    };
+
+    let result = EsdmSelftestResult {
+        crypto_state: result.crypto_state.into(),
+        es_state: result.es_state.into(),
+        es_sources: result.es_sources,
+        es_failures: result.es_failures,
+    };
+
+    if ret == 0 {
+        Ok((result, true))
+    } else if result.crypto_state == EsdmSelftestState::Undone
+        && result.es_state == EsdmSelftestState::Undone
+    {
+        Err(rpc_error(ret, "ESDM error selftest"))
+    } else {
+        Ok((result, false))
+    }
+}
+
+/// sets the entropy rate of an entropy source (privileged interface, only
+/// supported by ESDM servers built in test mode or as debug build, ESDM >= 1.2.4)
+pub fn esdm_set_es_rate(es: &str, rate: u32) -> Result<(), Error> {
+    let es = CString::new(es).map_err(|_| Error::other("entropy source name contains NUL"))?;
+    once_rpc(
+        || unsafe { esdm::esdm_rpcc_set_es_rate(es.as_ptr(), rate) },
+        "ESDM error set entropy source rate",
+    )
+}
+
+/// initializes an ESDM connection, extracts a value from the JSON status
+/// document and releases the connection again
+fn with_status_json<T>(parse: impl FnOnce(&serde_json::Value) -> Option<T>) -> Option<T> {
     if !esdm_rng_init() {
         return None;
     }
 
-    let result = esdm_status_str().ok().and_then(|status| parse(&status));
+    let result = esdm_status_json_str()
+        .ok()
+        .and_then(|status| serde_json::from_str::<serde_json::Value>(&status).ok())
+        .and_then(|status| parse(&status));
 
     esdm_rng_fini();
 
@@ -290,27 +487,12 @@ fn with_status<T>(parse: impl FnOnce(&str) -> Option<T>) -> Option<T> {
 
 #[must_use]
 pub fn esdm_is_fully_seeded() -> Option<bool> {
-    with_status(|status| {
-        if status.contains("ESDM fully seeded: true") {
-            Some(true)
-        } else if status.contains("ESDM fully seeded: false") {
-            Some(false)
-        } else {
-            None
-        }
-    })
+    with_status_json(|status| status.get("fully_seeded")?.as_bool())
 }
 
 #[must_use]
 pub fn esdm_get_entropy_level() -> Option<u32> {
-    with_status(|status| {
-        status.lines().find_map(|line| {
-            line.strip_prefix("ESDM entropy level: ")?
-                .trim()
-                .parse::<u32>()
-                .ok()
-        })
-    })
+    with_status_json(|status| u32::try_from(status.get("entropy_level_bits")?.as_u64()?).ok())
 }
 
 pub struct EsdmNotification {}
@@ -430,6 +612,33 @@ mod tests {
     }
 
     #[test]
+    fn test_status_json() {
+        esdm_rng_init_checked();
+
+        let status: serde_json::Value =
+            serde_json::from_str(&esdm_status_json_str().unwrap()).unwrap();
+        assert!(status.get("fully_seeded").unwrap().is_boolean());
+        assert!(status.get("entropy_level_bits").unwrap().is_u64());
+
+        let drng: serde_json::Value =
+            serde_json::from_str(&esdm_drng_status_pr_json_str().unwrap()).unwrap();
+        assert!(drng.is_object());
+
+        esdm_rng_fini();
+
+        assert!(esdm_is_fully_seeded().is_some());
+        assert!(esdm_get_entropy_level().is_some());
+    }
+
+    #[test]
+    fn test_large_request() {
+        let mut rng = EsdmRng::new(EsdmRngType::FullySeeded);
+        let mut buf = vec![0u8; 1 << 20];
+        rng.try_fill_bytes(&mut buf).unwrap();
+        assert!(buf.iter().any(|&b| b != 0));
+    }
+
+    #[test]
     fn test_status() {
         esdm_rng_init_checked();
 
@@ -462,5 +671,10 @@ mod tests {
         esdm_clear_pool().unwrap();
         esdm_add_entropy(&buf, u32::try_from(buf.len() * 8).unwrap()).unwrap();
         assert!(esdm_get_entropy_count().unwrap() >= 32 * 8);
+
+        let (result, passed) = esdm_selftest().unwrap();
+        println!("selftest: {result:?}");
+        assert!(passed);
+        assert_eq!(result.crypto_state, EsdmSelftestState::Passed);
     }
 }

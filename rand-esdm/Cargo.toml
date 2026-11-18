@@ -17,6 +17,7 @@ privileged_tests = []
 rand_core = { workspace = true }
 libc = { workspace = true }
 esdm-sys = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 rand = { workspace = true }
