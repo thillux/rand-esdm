@@ -1,47 +1,33 @@
 # rand-esdm
 
 [![crates.io](https://img.shields.io/crates/v/rand-esdm.svg)](https://crates.io/crates/rand-esdm)
+[![docs.rs](https://docs.rs/rand-esdm/badge.svg)](https://docs.rs/rand-esdm)
 
-## About
-A small library for interfacing Rust with the [ESDM](https://github.com/smuellerDD/esdm) user-space random server.
+Rust interface to the [ESDM](https://www.chronox.de/esdm/) (Entropy Source and
+DRNG Manager), a random number server running in user space.
 
-It currently provides the minimal amount of bindings necessary to use ESDM together with the [rand crate](https://github.com/rust-random/rand).
+- `EsdmRng`: a cryptographically secure RNG implementing the `rand_core`
+  traits, usable with everything in the [rand](https://docs.rs/rand)
+  ecosystem
+- `EsdmConnection`: the unprivileged interface, e.g. the status of the ESDM,
+  as text or typed
+- `EsdmPrivConnection`: the privileged interface to feed and control the
+  entropy pool (`add_entropy`, `crng_reseed`, `selftest`, ...)
+- `EsdmNotification`: waits until the ESDM asks for entropy
 
-## Usage Example
+## Requirements
 
-### Add rand-esdm to your Cargo.toml
+A running `esdm-server` of ESDM 1.2.4 or later, and its client libraries at
+build time, see [`esdm-sys`](https://crates.io/crates/esdm-sys).
 
 ```toml
+[dependencies]
 rand-esdm = "0.5.0"
+rand = "0.10"
 ```
 
-### Generate Random Numbers with rand crate
+## Random numbers
 
-Choose type of rng:
-
-- Only usable when fully seeded: ```EsdmRng::new(EsdmRngType::FullySeeded)```
-- Only usable with fresh entropy: ```EsdmRng::new(EsdmRngType::PredictionResistant)```
-
-`EsdmRng` implements the fallible `TryRng` and `TryCryptoRng` traits. Wrap it
-in `UnwrapErr` to use it as infallible `Rng`/`CryptoRng`, which panics if the
-ESDM cannot deliver random bytes:
-```rust
-use rand::rand_core::UnwrapErr;
-
-let mut rng = UnwrapErr(EsdmRng::new(EsdmRngType::FullySeeded));
-```
-
-Include RngExt utility trait from rand:
-```rust
-use rand::RngExt;
-```
-
-Draw random numbers as needed, e.g.:
-```rust
-let rnd: u64 = rng.random();
-```
-
-Complete toy example can be found in `examples/readme.rs`:
 ```rust
 use rand::RngExt;
 use rand::rand_core::UnwrapErr;
@@ -53,3 +39,113 @@ fn main() {
     println!("{rnd:X}");
 }
 ```
+
+`EsdmRng` implements the fallible `TryRng` and `TryCryptoRng` traits. Wrap it
+in `UnwrapErr`, as above, to use it as infallible `Rng`/`CryptoRng`, which
+panics if the ESDM cannot deliver. To handle errors instead:
+
+```rust
+use rand::rand_core::TryRng;
+use rand_esdm::{EsdmRng, EsdmRngType};
+
+fn main() -> std::io::Result<()> {
+    let mut rng = EsdmRng::try_new(EsdmRngType::FullySeeded)?;
+    let mut key = [0u8; 32];
+    rng.try_fill_bytes(&mut key)?;
+    Ok(())
+}
+```
+
+There are two modes:
+
+| `EsdmRngType` | Semantics | Use for |
+| --- | --- | --- |
+| `FullySeeded` | `getrandom()`: output of the DRNGs, only once the ESDM is fully seeded | almost everything, it is fast |
+| `PredictionResistant` | `getrandom(GRND_RANDOM)`: fresh entropy for every request | long term secrets; limited by the entropy sources, possibly only a few KiB/s |
+
+## Status
+
+```rust
+use rand_esdm::EsdmConnection;
+
+fn main() -> std::io::Result<()> {
+    let conn = EsdmConnection::try_new()?;
+    let status = conn.status()?;
+    println!(
+        "fully seeded: {}, entropy level: {} bits",
+        status.fully_seeded, status.entropy_level_bits
+    );
+    Ok(())
+}
+```
+
+## Connections and privileges
+
+Every call to the ESDM is a method of the connection it needs, so it cannot
+be made without one:
+
+| Type | Offers | Needs |
+| --- | --- | --- |
+| `EsdmRng` | random numbers | nothing, it holds a connection of its own |
+| `EsdmConnection` | `status`, `status_json`, `status_text`, `drng_status`, `entropy_count`, `write_wakeup_thresh`, `write_data`, ... | nothing |
+| `EsdmPrivConnection` | `add_entropy`, `add_to_entropy_count`, `clear_pool`, `crng_reseed`, `selftest`, `set_es_rate` | root, the calls fail with `ErrorKind::PermissionDenied` otherwise |
+| `EsdmNotification` | `wait_for_entropy_needed_timeout` | root |
+
+```rust
+use rand_esdm::EsdmPrivConnection;
+
+fn main() -> std::io::Result<()> {
+    let priv_conn = EsdmPrivConnection::try_new()?;
+    let entropy = [0u8; 32]; // read from a real entropy source instead
+    priv_conn.add_entropy(&entropy, 256)?;
+    Ok(())
+}
+```
+
+Connections are cheap: the client library connects lazily and all
+connections of a process share one connection pool. All types can be used
+from any thread, connections can be shared by reference.
+
+## Examples
+
+Complete programs in [`examples`](examples), run them with
+`cargo run --example <name>`:
+
+| Example | Shows |
+| --- | --- |
+| [`readme`](examples/readme.rs) | the minimal example above |
+| [`random`](examples/random.rs) | both RNG modes, rand helpers, seeding a user space RNG |
+| [`status`](examples/status.rs) | a summary of the typed status |
+| [`feed_entropy`](examples/feed_entropy.rs) | privileged: provide entropy whenever the ESDM asks for it |
+
+## Upgrading from 0.4
+
+- `esdm_rng_init*`/`esdm_rng_fini*` are gone, and so are the free functions
+  which needed them. Create an `EsdmConnection` or `EsdmPrivConnection` and
+  call its methods; it is released when dropped:
+
+  | 0.4 | 0.5 |
+  | --- | --- |
+  | `esdm_status_str()` | `conn.status_text()` |
+  | `esdm_jent_status_str()` | `conn.jent_status_text()` |
+  | `esdm_get_entropy_count()` | `conn.entropy_count()` |
+  | `esdm_write_wakeup_thresh()` | `conn.write_wakeup_thresh()` |
+  | `esdm_write_data()` | `conn.write_data()` |
+  | `esdm_add_entropy()` | `priv_conn.add_entropy()` |
+  | `esdm_add_to_entropy_count()` | `priv_conn.add_to_entropy_count()` |
+  | `esdm_clear_pool()` | `priv_conn.clear_pool()` |
+  | `esdm_crng_reseed()`, `esdm_reseed_crng()` | `priv_conn.crng_reseed()` |
+
+  `esdm_is_fully_seeded`, `esdm_get_entropy_level` and
+  `esdm_set_max_online_nodes` remain free functions.
+- New: typed and JSON status reports (`conn.status()`, `conn.drng_status()`,
+  ...), `priv_conn.selftest()`, `priv_conn.set_es_rate()`, and
+  `TryCryptoRng` for `EsdmRng`.
+- `EsdmNotification` holds its own connection and no longer implements
+  `Default`.
+- The status and self test types are `#[non_exhaustive]`.
+- ESDM 1.2.4 or later is required.
+
+## License
+
+MIT

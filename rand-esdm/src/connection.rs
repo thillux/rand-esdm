@@ -5,8 +5,9 @@
 //! lock: only the first init sets a service up and the matching last fini
 //! releases it, a fini without a reference is a no-op. The guards below
 //! therefore map directly onto init and fini.
-//! Mixing them with the deprecated free functions is memory safe, but breaks
-//! the reference counting, see [`EsdmConnection`].
+//!
+//! Every call which needs a service is a method of its guard, so the type
+//! system guarantees that the service is initialized while it runs.
 
 use std::io::Error;
 
@@ -51,16 +52,24 @@ fn fini_priv() {
 
 /// unprivileged client connection to the ESDM, released when dropped
 ///
-/// The free functions of this crate that talk to the unprivileged interface
-/// (e.g. [`crate::esdm_status`]) need one to be alive. Several connections
-/// may exist at once, they share the client service of the library.
-/// [`crate::EsdmRng`] holds its own.
+/// The unprivileged interface of the ESDM is available as its methods:
+/// the status ([`Self::status`]), the entropy count ([`Self::entropy_count`])
+/// and writing data to the auxiliary pool ([`Self::write_data`]). Random
+/// numbers come from [`crate::EsdmRng`], which holds a connection of its own.
 ///
-/// The deprecated free functions (e.g. [`esdm_rng_fini`]) take and drop the
-/// same references as the connections. A surplus `esdm_rng_fini*` call drops
-/// a reference a live connection relies on: the connection is torn down under
-/// it, and the connection later releases whatever reference was taken after
-/// that. Do not mix both.
+/// Connections are cheap: the client library connects to the server lazily,
+/// on the first request, and all connections of a process share its
+/// connection pool. They can be shared between threads by reference.
+///
+/// ```
+/// use rand_esdm::EsdmConnection;
+///
+/// # fn main() -> std::io::Result<()> {
+/// let conn = EsdmConnection::try_new()?;
+/// println!("auxiliary pool: {} bits", conn.entropy_count()?);
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug)]
 #[must_use = "the connection is released again when dropped"]
 pub struct EsdmConnection {
@@ -94,8 +103,22 @@ impl Drop for EsdmConnection {
 
 /// privileged client connection to the ESDM, released when dropped
 ///
-/// The privileged functions of this crate (e.g. [`crate::esdm_add_entropy`])
-/// need one to be alive and the process to run as root.
+/// The privileged interface of the ESDM is available as its methods: adding
+/// entropy ([`Self::add_entropy`]), reseeding ([`Self::crng_reseed`]),
+/// clearing the pool ([`Self::clear_pool`]) and running the self tests
+/// ([`Self::selftest`]). They fail with
+/// [`std::io::ErrorKind::PermissionDenied`] unless the process runs as root;
+/// setting up the connection itself works without.
+///
+/// ```no_run
+/// use rand_esdm::EsdmPrivConnection;
+///
+/// # fn main() -> std::io::Result<()> {
+/// let priv_conn = EsdmPrivConnection::try_new()?;
+/// priv_conn.crng_reseed()?;
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug)]
 #[must_use = "the connection is released again when dropped"]
 pub struct EsdmPrivConnection {
@@ -126,42 +149,15 @@ impl Drop for EsdmPrivConnection {
     }
 }
 
-/// Returns if the client connection to ESDM was initialized successfully
-///
-/// Do not mix with [`EsdmConnection`], see its notes.
-#[deprecated(
-    since = "0.5.0",
-    note = "use `EsdmConnection`, which is released when dropped"
-)]
-#[must_use]
-pub fn esdm_rng_init() -> bool {
-    init_unpriv().is_ok()
-}
-
-/// initializes the client connection to ESDM, asserts if something goes wrong
-///
-/// Do not mix with [`EsdmConnection`], see its notes.
-#[deprecated(since = "0.5.0", note = "use `EsdmConnection::new`")]
-pub fn esdm_rng_init_checked() {
-    if let Err(e) = init_unpriv() {
-        panic!("{e}");
-    }
-}
-
-/// releases a reference taken by [`esdm_rng_init`], a no-op if none is held
-///
-/// Do not mix with [`EsdmConnection`], see its notes.
-#[deprecated(since = "0.5.0", note = "drop the `EsdmConnection` instead")]
-pub fn esdm_rng_fini() {
-    fini_unpriv();
-}
-
 /// Limits the number of parallel RPC connections the client library uses.
 ///
-/// Since ESDM 1.2.4 the limit can only be lowered and has to be set before the
-/// RPC connection is initialized (e.g. by [`EsdmConnection::new`] or
-/// [`crate::EsdmRng::new`]), as connections of an initialized service are not
-/// resized.
+/// By default the library opens one connection per CPU, so as many requests
+/// can be served in parallel. Since ESDM 1.2.4 the limit can only be lowered,
+/// every call keeps the smaller of the current and the requested value, and 0
+/// counts as 1. It has to be set before the first connection is set up (e.g.
+/// by [`EsdmConnection::new`] or [`crate::EsdmRng::new`]): the connections of
+/// an initialized service are not resized. A call coming too late still
+/// succeeds, it just has no effect on the existing connections.
 pub fn esdm_set_max_online_nodes(nodes: u32) -> Result<(), Error> {
     // SAFETY: takes a plain integer, the library stores it atomically.
     let ret = unsafe { esdm::esdm_rpcc_set_max_online_nodes(nodes) };
@@ -170,37 +166,4 @@ pub fn esdm_set_max_online_nodes(nodes: u32) -> Result<(), Error> {
     }
 
     Ok(())
-}
-
-/// Returns if the privileged client connection to ESDM was initialized
-/// successfully
-///
-/// Do not mix with [`EsdmPrivConnection`], see the notes of [`EsdmConnection`].
-#[deprecated(
-    since = "0.5.0",
-    note = "use `EsdmPrivConnection`, which is released when dropped"
-)]
-#[must_use]
-pub fn esdm_rng_init_priv() -> bool {
-    init_priv().is_ok()
-}
-
-/// initializes the privileged client connection to ESDM, asserts if something
-/// goes wrong
-///
-/// Do not mix with [`EsdmPrivConnection`], see the notes of [`EsdmConnection`].
-#[deprecated(since = "0.5.0", note = "use `EsdmPrivConnection::new`")]
-pub fn esdm_rng_init_priv_checked() {
-    if let Err(e) = init_priv() {
-        panic!("{e}");
-    }
-}
-
-/// releases a reference taken by [`esdm_rng_init_priv`], a no-op if none is
-/// held
-///
-/// Do not mix with [`EsdmPrivConnection`], see the notes of [`EsdmConnection`].
-#[deprecated(since = "0.5.0", note = "drop the `EsdmPrivConnection` instead")]
-pub fn esdm_rng_fini_priv() {
-    fini_priv();
 }

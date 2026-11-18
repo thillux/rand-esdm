@@ -56,104 +56,124 @@ fn fetch_status_str(
     String::from_utf8(status_bytes).map_err(|_| Error::other("ESDM status string is not UTF-8"))
 }
 
-pub fn esdm_jent_status_str() -> Result<String, Error> {
-    fetch_status_str(
-        // SAFETY: `buf` is writable for `len` bytes, see `fetch_status_str`
-        // and `rpc.rs`.
-        |buf, len| unsafe { esdm::esdm_rpcc_jent_status(buf, len) },
-        "ESDM error jent status",
-    )
-}
-
-/// human readable status of the ESDM
-///
-/// Since ESDM 1.2.4 this text is rendered from the JSON status document and
-/// its format is not meant to be parsed, use [`esdm_status_json_str`] instead.
-pub fn esdm_status_str() -> Result<String, Error> {
-    fetch_status_str(
-        // SAFETY: `buf` is writable for `len` bytes, see `fetch_status_str`
-        // and `rpc.rs`.
-        |buf, len| unsafe { esdm::esdm_rpcc_status(buf, len) },
-        "ESDM error status",
-    )
-}
-
-/// status of the ESDM as JSON document (ESDM >= 1.2.4)
-pub fn esdm_status_json_str() -> Result<String, Error> {
-    fetch_status_str(
-        // SAFETY: `buf` is writable for `len` bytes, see `fetch_status_str`
-        // and `rpc.rs`.
-        |buf, len| unsafe { esdm::esdm_rpcc_status_json(buf, len) },
-        "ESDM error status json",
-    )
-}
-
-/// status of the DRNG instance serving the given node as JSON document
-/// (ESDM >= 1.2.4)
-pub fn esdm_drng_status_json_str(node: u32) -> Result<String, Error> {
-    fetch_status_str(
-        // SAFETY: `buf` is writable for `len` bytes, see `fetch_status_str`
-        // and `rpc.rs`.
-        |buf, len| unsafe { esdm::esdm_rpcc_drng_status_json(node, buf, len) },
-        "ESDM error DRNG status json",
-    )
-}
-
-/// status of the prediction resistant DRNG instance as JSON document
-/// (ESDM >= 1.2.4)
-pub fn esdm_drng_status_pr_json_str() -> Result<String, Error> {
-    fetch_status_str(
-        // SAFETY: `buf` is writable for `len` bytes, see `fetch_status_str`
-        // and `rpc.rs`.
-        |buf, len| unsafe { esdm::esdm_rpcc_drng_status_pr_json(buf, len) },
-        "ESDM error PR DRNG status json",
-    )
-}
-
 /// parses a JSON status document into its typed model
 fn parse_status_json<T: serde::de::DeserializeOwned>(doc: &str) -> Result<T, Error> {
     serde_json::from_str(doc).map_err(|e| Error::new(ErrorKind::InvalidData, e))
 }
 
-/// status of the ESDM (ESDM >= 1.2.4)
-///
-/// Typed form of [`esdm_status_json_str`]. Needs an unprivileged connection,
-/// see [`EsdmConnection`].
-pub fn esdm_status() -> Result<EsdmStatus, Error> {
-    parse_status_json(&esdm_status_json_str()?)
+impl EsdmConnection {
+    /// status of the ESDM
+    ///
+    /// Typed form of [`Self::status_json`].
+    ///
+    /// ```
+    /// use rand_esdm::EsdmConnection;
+    ///
+    /// # fn main() -> std::io::Result<()> {
+    /// let conn = EsdmConnection::try_new()?;
+    /// for es in conn.status()?.entropy_sources {
+    ///     println!("{}: {:?} bits available", es.name, es.available_entropy);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn status(&self) -> Result<EsdmStatus, Error> {
+        parse_status_json(&self.status_json()?)
+    }
+
+    /// status of the ESDM as JSON document
+    ///
+    /// [`Self::status`] parses it into [`EsdmStatus`].
+    pub fn status_json(&self) -> Result<String, Error> {
+        fetch_status_str(
+            // SAFETY: `buf` is writable for `len` bytes, see `fetch_status_str`
+            // and `rpc.rs`.
+            |buf, len| unsafe { esdm::esdm_rpcc_status_json(buf, len) },
+            "ESDM error status json",
+        )
+    }
+
+    /// human readable status of the ESDM
+    ///
+    /// Since ESDM 1.2.4 this text is rendered from the JSON status document
+    /// and its format is not meant to be parsed, use [`Self::status`]
+    /// instead.
+    pub fn status_text(&self) -> Result<String, Error> {
+        fetch_status_str(
+            // SAFETY: `buf` is writable for `len` bytes, see `fetch_status_str`
+            // and `rpc.rs`.
+            |buf, len| unsafe { esdm::esdm_rpcc_status(buf, len) },
+            "ESDM error status",
+        )
+    }
+
+    /// status of the DRNG instance serving the given node
+    ///
+    /// Typed form of [`Self::drng_status_json`].
+    pub fn drng_status(&self, node: u32) -> Result<EsdmDrngStatus, Error> {
+        parse_status_json(&self.drng_status_json(node)?)
+    }
+
+    /// status of the DRNG instance serving the given node as JSON document
+    ///
+    /// Fails with `ENODEV` if there is no such node.
+    pub fn drng_status_json(&self, node: u32) -> Result<String, Error> {
+        fetch_status_str(
+            // SAFETY: `buf` is writable for `len` bytes, see `fetch_status_str`
+            // and `rpc.rs`.
+            |buf, len| unsafe { esdm::esdm_rpcc_drng_status_json(node, buf, len) },
+            "ESDM error DRNG status json",
+        )
+    }
+
+    /// status of the prediction resistant DRNG instance
+    ///
+    /// Typed form of [`Self::drng_status_pr_json`].
+    pub fn drng_status_pr(&self) -> Result<EsdmDrngStatus, Error> {
+        parse_status_json(&self.drng_status_pr_json()?)
+    }
+
+    /// status of the prediction resistant DRNG instance as JSON document
+    pub fn drng_status_pr_json(&self) -> Result<String, Error> {
+        fetch_status_str(
+            // SAFETY: `buf` is writable for `len` bytes, see `fetch_status_str`
+            // and `rpc.rs`.
+            |buf, len| unsafe { esdm::esdm_rpcc_drng_status_pr_json(buf, len) },
+            "ESDM error PR DRNG status json",
+        )
+    }
+
+    /// human readable status of the Jitter RNG entropy source
+    ///
+    /// Empty if the server runs without it.
+    pub fn jent_status_text(&self) -> Result<String, Error> {
+        fetch_status_str(
+            // SAFETY: `buf` is writable for `len` bytes, see `fetch_status_str`
+            // and `rpc.rs`.
+            |buf, len| unsafe { esdm::esdm_rpcc_jent_status(buf, len) },
+            "ESDM error jent status",
+        )
+    }
 }
 
-/// status of the DRNG instance serving the given node (ESDM >= 1.2.4)
-///
-/// Typed form of [`esdm_drng_status_json_str`].
-pub fn esdm_drng_status(node: u32) -> Result<EsdmDrngStatus, Error> {
-    parse_status_json(&esdm_drng_status_json_str(node)?)
-}
-
-/// status of the prediction resistant DRNG instance (ESDM >= 1.2.4)
-///
-/// Typed form of [`esdm_drng_status_pr_json_str`].
-pub fn esdm_drng_status_pr() -> Result<EsdmDrngStatus, Error> {
-    parse_status_json(&esdm_drng_status_pr_json_str()?)
-}
-
-/// initializes an ESDM connection, fetches the status and releases the
+/// sets up a connection of its own, fetches the status and releases the
 /// connection again
 fn with_status<T>(extract: impl FnOnce(&EsdmStatus) -> T) -> Option<T> {
-    let _conn = EsdmConnection::try_new().ok()?;
-    esdm_status().ok().map(|status| extract(&status))
+    let conn = EsdmConnection::try_new().ok()?;
+    conn.status().ok().map(|status| extract(&status))
 }
 
-/// whether the ESDM is fully seeded, sets up its own connection
+/// whether the ESDM is fully seeded, sets up a connection of its own
 ///
 /// Returns `None` on any error: if no connection can be set up or the status
-/// cannot be fetched or parsed. Use [`esdm_status`] to learn the reason.
+/// cannot be fetched or parsed. Use [`EsdmConnection::status`] to learn the
+/// reason.
 #[must_use]
 pub fn esdm_is_fully_seeded() -> Option<bool> {
     with_status(|status| status.fully_seeded)
 }
 
-/// entropy level of the ESDM in bits, sets up its own connection
+/// entropy level of the ESDM in bits, sets up a connection of its own
 ///
 /// Returns `None` on any error, see [`esdm_is_fully_seeded`].
 #[must_use]

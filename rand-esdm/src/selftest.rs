@@ -5,6 +5,7 @@ use std::io::Error;
 
 use esdm_sys::esdm;
 
+use crate::connection::EsdmPrivConnection;
 use crate::rpc::rpc_error;
 
 /// state of a group of ESDM self tests
@@ -12,8 +13,11 @@ use crate::rpc::rpc_error;
 #[serde(rename_all = "lowercase")]
 #[non_exhaustive]
 pub enum EsdmSelftestState {
+    /// not run yet
     Undone,
+    /// all self tests of the group passed
     Passed,
+    /// at least one self test of the group failed
     /// also covers states unknown to this crate
     #[serde(other)]
     Failed,
@@ -31,7 +35,7 @@ impl From<esdm::esdm_rpcc_selftest_state> for EsdmSelftestState {
     }
 }
 
-/// outcome of an ESDM self test run, see [`esdm_selftest`]
+/// outcome of an ESDM self test run, see [`EsdmPrivConnection::selftest`]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct EsdmSelftestResult {
@@ -58,11 +62,30 @@ impl EsdmSelftestResult {
     }
 }
 
-/// runs the ESDM self tests now (privileged interface, ESDM >= 1.2.4)
-///
-/// Returns the outcome, see [`EsdmSelftestResult::all_passed`] for the
-/// verdict, or an error if the server could not be asked.
-pub fn esdm_selftest() -> Result<EsdmSelftestResult, Error> {
+impl EsdmPrivConnection {
+    /// runs the ESDM self tests now
+    ///
+    /// Returns the outcome, see [`EsdmSelftestResult::all_passed`] for the
+    /// verdict, or an error if the server could not be asked.
+    ///
+    /// ```no_run
+    /// use rand_esdm::EsdmPrivConnection;
+    ///
+    /// # fn main() -> std::io::Result<()> {
+    /// let priv_conn = EsdmPrivConnection::try_new()?;
+    /// let result = priv_conn.selftest()?;
+    /// if !result.all_passed() {
+    ///     eprintln!("ESDM self tests failed: {result:?}");
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn selftest(&self) -> Result<EsdmSelftestResult, Error> {
+        run_selftest()
+    }
+}
+
+fn run_selftest() -> Result<EsdmSelftestResult, Error> {
     let mut result = esdm::esdm_rpcc_selftest_result {
         crypto_state: esdm::esdm_rpcc_selftest_state::esdm_rpcc_selftest_undone,
         es_state: esdm::esdm_rpcc_selftest_state::esdm_rpcc_selftest_undone,

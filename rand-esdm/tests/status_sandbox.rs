@@ -26,8 +26,7 @@ use std::time::{Duration, Instant};
 use rand_core::TryRng;
 use rand_esdm::{
     EsdmConnection, EsdmDrngType, EsdmEntropySourceStatus, EsdmPrivConnection, EsdmRng,
-    EsdmRngType, EsdmSelftestState, EsdmStatus, esdm_add_entropy, esdm_crng_reseed,
-    esdm_drng_status, esdm_drng_status_pr, esdm_is_fully_seeded, esdm_selftest, esdm_status,
+    EsdmRngType, EsdmSelftestState, EsdmStatus, esdm_is_fully_seeded,
 };
 use serde_json::{Value, json};
 
@@ -224,16 +223,16 @@ fn is_utc_timestamp(s: &str) -> bool {
         })
 }
 
-fn fetch_status() -> EsdmStatus {
-    let status = esdm_status().expect("status");
+fn fetch_status(conn: &EsdmConnection) -> EsdmStatus {
+    let status = conn.status().expect("status");
     check_common(&status);
     status
 }
 
 /// waits until the external socket source is connected to its provider
-fn wait_for_provider() -> EsdmStatus {
+fn wait_for_provider(conn: &EsdmConnection) -> EsdmStatus {
     wait_for("connection to the entropy source provider", || {
-        let status = esdm_status().ok()?;
+        let status = conn.status().ok()?;
         detail_str(source(&status, "ExternalSocket"), "status")
             .starts_with("connected")
             .then_some(status)
@@ -245,8 +244,8 @@ fn wait_for_provider() -> EsdmStatus {
  */
 
 fn check_default() {
-    let _conn = EsdmConnection::new();
-    let status = fetch_status();
+    let conn = EsdmConnection::new();
+    let status = fetch_status(&conn);
 
     let ext = source(&status, "ExternalSocket");
     assert_eq!(ext.name, "ExternalSocket");
@@ -259,10 +258,10 @@ fn check_default() {
     assert!(!ext.details.contains_key("provider"));
 
     // the single DRNG documents match their entries of the status
-    let pr = esdm_drng_status_pr().unwrap();
+    let pr = conn.drng_status_pr().unwrap();
     assert_eq!(pr.drng_type, EsdmDrngType::PredictionResistance);
     assert_eq!(pr.node, None);
-    let node0 = esdm_drng_status(0).unwrap();
+    let node0 = conn.drng_status(0).unwrap();
     assert!(matches!(
         node0.drng_type,
         EsdmDrngType::Initial | EsdmDrngType::Node
@@ -272,25 +271,25 @@ fn check_default() {
 }
 
 fn check_small_memory() {
-    let _conn = EsdmConnection::new();
-    let status = fetch_status();
+    let conn = EsdmConnection::new();
+    let status = fetch_status(&conn);
     assert_eq!(status.drng_instances, 1);
     // the only DRNG instance is the initial one, serving node 0
-    let node0 = esdm_drng_status(0).unwrap();
+    let node0 = conn.drng_status(0).unwrap();
     assert_eq!(node0.drng_type, EsdmDrngType::Initial);
     assert_eq!(node0.node, Some(0));
     assert_eq!(Some(&node0), status.drngs.first());
 }
 
 fn check_single_jent_instance() {
-    let _conn = EsdmConnection::new();
+    let conn = EsdmConnection::new();
     // the Jitter RNG alone still seeds the ESDM, see `check_common`
-    fetch_status();
+    fetch_status(&conn);
 }
 
 fn check_es_ext_unconnected() {
-    let _conn = EsdmConnection::new();
-    let status = fetch_status();
+    let conn = EsdmConnection::new();
+    let status = fetch_status(&conn);
     let ext = source(&status, "ExternalSocket");
     assert_eq!(ext.name, "ExternalSocket");
     assert_eq!(detail_str(ext, "status"), "not connected");
@@ -320,8 +319,8 @@ fn check_provider_source(ext: &EsdmEntropySourceStatus) {
 }
 
 fn check_es_ext_provider_rate() {
-    let _conn = EsdmConnection::new();
-    let status = wait_for_provider();
+    let conn = EsdmConnection::new();
+    let status = wait_for_provider(&conn);
     check_common(&status);
     let ext = source(&status, "ExternalSocket");
     check_provider_source(ext);
@@ -330,8 +329,8 @@ fn check_es_ext_provider_rate() {
 }
 
 fn check_es_ext_configured_rate() {
-    let _conn = EsdmConnection::new();
-    let status = wait_for_provider();
+    let conn = EsdmConnection::new();
+    let status = wait_for_provider(&conn);
     check_common(&status);
     let ext = source(&status, "ExternalSocket");
     check_provider_source(ext);
@@ -341,27 +340,27 @@ fn check_es_ext_configured_rate() {
 }
 
 fn check_runtime_changes() {
-    let _conn = EsdmConnection::new();
-    let _priv_conn = EsdmPrivConnection::new();
-    let before = fetch_status();
+    let conn = EsdmConnection::new();
+    let priv_conn = EsdmPrivConnection::new();
+    let before = fetch_status(&conn);
 
     // a forced reseed starts a new seed generation of the initial DRNG
-    esdm_crng_reseed().unwrap();
+    priv_conn.crng_reseed().unwrap();
     let generation = before.drngs[0].seed_generation;
     wait_for("reseed of the initial DRNG", || {
-        let node0 = esdm_drng_status(0).ok()?;
+        let node0 = conn.drng_status(0).ok()?;
         (node0.seed_generation > generation).then_some(())
     });
 
     // entropy written to the auxiliary pool is accounted there
-    esdm_add_entropy(&[0x5a; 64], 512).unwrap();
-    let aux = source(&fetch_status(), "Auxiliary").available_entropy;
+    priv_conn.add_entropy(&[0x5a; 64], 512).unwrap();
+    let aux = source(&fetch_status(&conn), "Auxiliary").available_entropy;
     assert!(aux.is_some_and(|e| e > 0), "{aux:?}");
 
     // a self test run is counted
-    let result = esdm_selftest().unwrap();
+    let result = priv_conn.selftest().unwrap();
     assert!(result.all_passed(), "{result:?}");
-    let completed = fetch_status().periodic_self_test.completed_self_tests;
+    let completed = fetch_status(&conn).periodic_self_test.completed_self_tests;
     assert!(completed > before.periodic_self_test.completed_self_tests);
 
     // the prediction resistant DRNG is seeded once it is used
@@ -370,7 +369,7 @@ fn check_runtime_changes() {
     let mut rng = EsdmRng::new(EsdmRngType::PredictionResistant);
     let mut buf = [0u8; 32];
     rng.try_fill_bytes(&mut buf).unwrap();
-    let pr = esdm_drng_status_pr().unwrap();
+    let pr = conn.drng_status_pr().unwrap();
     assert!(pr.seed_generation >= 1, "{pr:#?}");
     assert!(is_utc_timestamp(pr.last_seeding_time.as_deref().unwrap()));
     assert!(pr.seconds_since_last_reseed.is_some());

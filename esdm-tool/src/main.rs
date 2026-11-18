@@ -12,10 +12,8 @@ use std::{
 
 use clap::{Args, Parser, Subcommand};
 use rand_esdm::{
-    EsdmConnection, EsdmNotification, EsdmPrivConnection, EsdmRng, EsdmRngType, esdm_add_entropy,
-    esdm_crng_reseed, esdm_drng_status_json_str, esdm_drng_status_pr_json_str,
-    esdm_get_entropy_count, esdm_get_entropy_level, esdm_is_fully_seeded, esdm_jent_status_str,
-    esdm_selftest, esdm_status_json_str, esdm_status_str,
+    EsdmConnection, EsdmNotification, EsdmPrivConnection, EsdmRng, EsdmRngType,
+    esdm_get_entropy_level, esdm_is_fully_seeded,
 };
 use zeroize::Zeroizing;
 
@@ -104,8 +102,11 @@ struct ToolArgs {
 }
 
 /// prints the status string returned by `fetch` over an unprivileged connection
-fn print_status(fetch: impl FnOnce() -> std::io::Result<String>, name: &str) -> ExitCode {
-    let _conn = match EsdmConnection::try_new() {
+fn print_status(
+    fetch: impl FnOnce(&EsdmConnection) -> std::io::Result<String>,
+    name: &str,
+) -> ExitCode {
+    let conn = match EsdmConnection::try_new() {
         Ok(conn) => conn,
         Err(e) => {
             eprintln!("Cannot init ESDM connection: {e}. Exiting!");
@@ -113,7 +114,7 @@ fn print_status(fetch: impl FnOnce() -> std::io::Result<String>, name: &str) -> 
         }
     };
 
-    match fetch() {
+    match fetch(&conn) {
         Ok(status) => {
             print!("{status}");
             if !status.ends_with('\n') {
@@ -129,16 +130,16 @@ fn print_status(fetch: impl FnOnce() -> std::io::Result<String>, name: &str) -> 
 }
 
 fn handle_status() -> ExitCode {
-    print_status(esdm_status_str, "status string")
+    print_status(EsdmConnection::status_text, "status string")
 }
 
 fn handle_status_json() -> ExitCode {
-    print_status(esdm_status_json_str, "status JSON")
+    print_status(EsdmConnection::status_json, "status JSON")
 }
 
 fn handle_drng_status(arg: &DrngStatusArg) -> ExitCode {
     if arg.instance.eq_ignore_ascii_case("pr") {
-        return print_status(esdm_drng_status_pr_json_str, "PR DRNG status");
+        return print_status(EsdmConnection::drng_status_pr_json, "PR DRNG status");
     }
 
     let Ok(node) = arg.instance.parse::<u32>() else {
@@ -146,11 +147,11 @@ fn handle_drng_status(arg: &DrngStatusArg) -> ExitCode {
         return ExitCode::FAILURE;
     };
 
-    print_status(|| esdm_drng_status_json_str(node), "DRNG status")
+    print_status(|conn| conn.drng_status_json(node), "DRNG status")
 }
 
 fn handle_selftest() -> ExitCode {
-    let _priv_conn = match EsdmPrivConnection::try_new() {
+    let priv_conn = match EsdmPrivConnection::try_new() {
         Ok(conn) => conn,
         Err(e) => {
             eprintln!("Cannot init privileged ESDM connection: {e}. Exiting!");
@@ -158,7 +159,7 @@ fn handle_selftest() -> ExitCode {
         }
     };
 
-    match esdm_selftest() {
+    match priv_conn.selftest() {
         Ok(result) => {
             println!("Crypto self tests: {:?}", result.crypto_state);
             println!(
@@ -179,7 +180,7 @@ fn handle_selftest() -> ExitCode {
 }
 
 fn handle_jent_status() -> ExitCode {
-    print_status(esdm_jent_status_str, "jent status string")
+    print_status(EsdmConnection::jent_status_text, "jent status string")
 }
 
 fn wait_until_seeded(arg: &WaitUntilSeededArg) -> ExitCode {
@@ -261,14 +262,14 @@ fn get_entropy_level() -> ExitCode {
 }
 
 fn get_entropy_count() -> ExitCode {
-    let _conn = match EsdmConnection::try_new() {
+    let conn = match EsdmConnection::try_new() {
         Ok(conn) => conn,
         Err(e) => {
             eprintln!("Cannot init ESDM connection: {e}. Exiting!");
             return ExitCode::FAILURE;
         }
     };
-    match esdm_get_entropy_count() {
+    match conn.entropy_count() {
         Ok(cnt) => {
             println!("Entropy count: {cnt}");
             ExitCode::SUCCESS
@@ -313,7 +314,7 @@ fn write_to_aux_pool(arg: &WriteToAuxPoolArg) -> ExitCode {
         return ExitCode::FAILURE;
     };
 
-    let _priv_conn = match EsdmPrivConnection::try_new() {
+    let priv_conn = match EsdmPrivConnection::try_new() {
         Ok(conn) => conn,
         Err(e) => {
             eprintln!("Cannot init privileged ESDM connection: {e}. Exiting!");
@@ -321,7 +322,7 @@ fn write_to_aux_pool(arg: &WriteToAuxPoolArg) -> ExitCode {
         }
     };
 
-    match esdm_add_entropy(input, ent_bits) {
+    match priv_conn.add_entropy(input, ent_bits) {
         Ok(()) => {
             println!(
                 "Added {} Byte input to ESDM Auxiliary Pool, accounted with {ent_bits} Bit of entropy.",
@@ -347,14 +348,14 @@ fn is_fully_seeded() -> ExitCode {
 }
 
 fn crng_reseed() -> ExitCode {
-    let _priv_conn = match EsdmPrivConnection::try_new() {
+    let priv_conn = match EsdmPrivConnection::try_new() {
         Ok(conn) => conn,
         Err(e) => {
             eprintln!("Cannot init privileged ESDM connection: {e}. Exiting!");
             return ExitCode::FAILURE;
         }
     };
-    let ok = esdm_crng_reseed().is_ok();
+    let ok = priv_conn.crng_reseed().is_ok();
 
     if ok {
         ExitCode::SUCCESS
@@ -365,14 +366,6 @@ fn crng_reseed() -> ExitCode {
 }
 
 fn wait_until_seeding_necessary(arg: &WaitUntilSeedingNecessaryArg) -> ExitCode {
-    let _conn = match EsdmConnection::try_new() {
-        Ok(conn) => conn,
-        Err(e) => {
-            eprintln!("Cannot init ESDM connection: {e}. Exiting!");
-            return ExitCode::FAILURE;
-        }
-    };
-
     match EsdmNotification::try_new().and_then(|mut notifier| {
         notifier.wait_for_entropy_needed_timeout(Duration::from_secs(arg.timeout_secs))
     }) {
@@ -392,7 +385,7 @@ fn seed_from_os() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    let _priv_conn = match EsdmPrivConnection::try_new() {
+    let priv_conn = match EsdmPrivConnection::try_new() {
         Ok(conn) => conn,
         Err(e) => {
             eprintln!("Cannot init privileged ESDM connection: {e}. Exiting!");
@@ -402,7 +395,10 @@ fn seed_from_os() -> ExitCode {
 
     let mut exit_status = ExitCode::SUCCESS;
 
-    if esdm_add_entropy(&*buf, u32::try_from(buf.len() * 8).unwrap()).is_err() {
+    if priv_conn
+        .add_entropy(&*buf, u32::try_from(buf.len() * 8).unwrap())
+        .is_err()
+    {
         exit_status = ExitCode::FAILURE;
         eprintln!("Failed to seed ESDM, maybe root privileges missing?");
     } else {

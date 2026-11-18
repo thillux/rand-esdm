@@ -9,9 +9,9 @@
 //! connection. Each call site therefore only has to pass valid pointers,
 //! which its `SAFETY` comment states.
 
-use libc::{EAGAIN, ECONNRESET, EINTR, ETIMEDOUT};
+use libc::{EAGAIN, ECONNRESET, EFAULT, EINTR, ETIMEDOUT};
 use std::ffi::c_int;
-use std::io::Error;
+use std::io::{Error, ErrorKind};
 use std::thread;
 use std::time::Duration;
 
@@ -50,12 +50,23 @@ pub(crate) fn should_retry(ret: i64, attempt: u32) -> bool {
 }
 
 /// converts a negative errno-style ESDM return value into an [`Error`]
+///
+/// `-EFAULT` is what the client library reports for a call without an
+/// initialized service. The connection guards rule that out, but it becomes
+/// [`ErrorKind::NotConnected`] rather than the misleading "Bad address" in
+/// any case.
 pub(crate) fn rpc_error(ret: impl Into<i64>, err_msg: &'static str) -> Error {
     let errno = ret
         .into()
         .checked_neg()
         .and_then(|errno| i32::try_from(errno).ok())
         .unwrap_or(libc::EINVAL);
+    if errno == EFAULT {
+        return Error::new(
+            ErrorKind::NotConnected,
+            format!("{err_msg}: ESDM client service not initialized"),
+        );
+    }
     let os_err = Error::from_raw_os_error(errno);
     Error::new(os_err.kind(), format!("{err_msg}: {os_err}"))
 }
@@ -100,7 +111,6 @@ pub(crate) fn once_rpc(mut rpc: impl FnMut() -> c_int, err_msg: &'static str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::ErrorKind;
 
     #[test]
     fn rpc_error_maps_errno() {
@@ -112,6 +122,13 @@ mod tests {
             rpc_error(-libc::EACCES, "msg").kind(),
             ErrorKind::PermissionDenied
         );
+    }
+
+    #[test]
+    fn rpc_error_explains_missing_connection() {
+        let err = rpc_error(-EFAULT, "msg");
+        assert_eq!(err.kind(), ErrorKind::NotConnected);
+        assert!(err.to_string().contains("not initialized"), "{err}");
     }
 
     #[test]
@@ -155,7 +172,7 @@ mod tests {
 
     #[test]
     fn retry_rpc_does_not_retry_permanent_errors() {
-        for errno in [libc::EACCES, libc::EFAULT, libc::EOPNOTSUPP] {
+        for errno in [libc::EACCES, EFAULT, libc::EOPNOTSUPP] {
             let mut calls = 0;
             let err = retry_rpc(
                 || {
@@ -175,13 +192,7 @@ mod tests {
         for errno in [EINTR, EAGAIN, ETIMEDOUT, ECONNRESET] {
             assert!(is_transient(-i64::from(errno)));
         }
-        for ret in [
-            0,
-            1,
-            -i64::from(libc::EACCES),
-            -i64::from(libc::EFAULT),
-            i64::MIN,
-        ] {
+        for ret in [0, 1, -i64::from(libc::EACCES), -i64::from(EFAULT), i64::MIN] {
             assert!(!is_transient(ret));
         }
     }

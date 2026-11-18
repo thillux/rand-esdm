@@ -11,17 +11,50 @@ use std::io::Error;
 use crate::connection::EsdmConnection;
 use crate::rpc::{rpc_error, should_retry};
 
+/// which DRNG of the ESDM serves an [`EsdmRng`]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum EsdmRngType {
-    /// ESDM RNG implementation, which uses fresh entropy for every random output produced
+    /// output of the prediction resistant DRNG, which is reseeded with fresh
+    /// entropy for every request (`getrandom(GRND_RANDOM)` semantics)
+    ///
+    /// The output never exceeds the entropy the ESDM collected, so it is
+    /// limited by the rate of the entropy sources. Depending on them this can
+    /// be as slow as a few KiB per second, and a request blocks until enough
+    /// entropy is available. Use it for long term secrets only, where its
+    /// stronger guarantee is worth the cost.
     PredictionResistant,
 
-    /// ESDM RNG implementation, which only produces random numbers when fully seeded
-    /// otherwise it times out and returns an error after a few internal tries
+    /// output of the DRNG instances, which only produce random numbers once
+    /// the ESDM is fully seeded (`getrandom()` semantics)
+    ///
+    /// Fast and the right choice in almost all cases. Before the ESDM is
+    /// fully seeded, requests fail after a few internal tries.
     FullySeeded,
 }
 
+/// cryptographically secure RNG backed by the ESDM
+///
+/// It implements the fallible [`TryRng`] and [`TryCryptoRng`] traits of
+/// `rand_core`. Wrap it into [`rand_core::UnwrapErr`] for the infallible
+/// `Rng`/`CryptoRng` traits, which panic on errors instead.
+///
+/// The RNG keeps no state besides its client connection, every request is
+/// served by the ESDM. Large requests are split up and short reads are
+/// continued, so [`TryRng::try_fill_bytes`] either fills the whole buffer or
+/// fails.
+///
+/// ```
+/// use rand::rand_core::TryRng;
+/// use rand_esdm::{EsdmRng, EsdmRngType};
+///
+/// # fn main() -> std::io::Result<()> {
+/// let mut rng = EsdmRng::try_new(EsdmRngType::FullySeeded)?;
+/// let nonce = rng.try_next_u64()?;
+/// # let _ = nonce;
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug)]
 pub struct EsdmRng {
     rng_type: EsdmRngType,
@@ -30,6 +63,8 @@ pub struct EsdmRng {
 }
 
 impl EsdmRng {
+    /// sets up the client connection to the ESDM server for this RNG
+    ///
     /// # Panics
     ///
     /// if no connection to the ESDM server can be set up, see [`Self::try_new`]
@@ -39,6 +74,10 @@ impl EsdmRng {
     }
 
     /// sets up the client connection to the ESDM server for this RNG
+    ///
+    /// Fails if the client library cannot set up its connection, e.g.
+    /// because it runs out of memory. A server which is not running is only
+    /// noticed by the first request.
     pub fn try_new(rng_type: EsdmRngType) -> Result<Self, Error> {
         Ok(Self {
             rng_type,

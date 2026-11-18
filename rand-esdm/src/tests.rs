@@ -15,9 +15,9 @@ fn test_prediction_resistant_mode() {
 
 #[test]
 fn test_write_wakeup_thresh() {
-    let _conn = EsdmConnection::new();
+    let conn = EsdmConnection::new();
 
-    let write_wakup_thresh = esdm_write_wakeup_thresh().unwrap();
+    let write_wakup_thresh = conn.write_wakeup_thresh().unwrap();
     assert_ne!(write_wakup_thresh, 0);
 
     println!("write wakeup thresh: {write_wakup_thresh}");
@@ -54,6 +54,21 @@ fn test_multithreading() {
 }
 
 #[test]
+fn test_shared_connection() {
+    // one connection serves several threads by reference
+    let conn = EsdmConnection::new();
+    std::thread::scope(|s| {
+        for _ in 0..4 {
+            s.spawn(|| {
+                for _ in 0..50 {
+                    conn.entropy_count().unwrap();
+                }
+            });
+        }
+    });
+}
+
+#[test]
 fn test_fully_seeded_mode() {
     let mut rng = EsdmRng::new(EsdmRngType::FullySeeded);
 
@@ -67,24 +82,29 @@ fn test_fully_seeded_mode() {
 fn test_status_json() {
     let conn = EsdmConnection::new();
 
-    let status: serde_json::Value = serde_json::from_str(&esdm_status_json_str().unwrap()).unwrap();
+    let status: serde_json::Value = serde_json::from_str(&conn.status_json().unwrap()).unwrap();
     assert!(status.get("fully_seeded").unwrap().is_boolean());
     assert!(status.get("entropy_level_bits").unwrap().is_u64());
 
     let drng: serde_json::Value =
-        serde_json::from_str(&esdm_drng_status_pr_json_str().unwrap()).unwrap();
+        serde_json::from_str(&conn.drng_status_pr_json().unwrap()).unwrap();
     assert!(drng.is_object());
 
-    let status = esdm_status().unwrap();
+    let status = conn.status().unwrap();
     assert_ne!(status.entropy_sources.len(), 0);
     assert_eq!(
-        esdm_drng_status_pr().unwrap().drng_type,
+        conn.drng_status_pr().unwrap().drng_type,
         EsdmDrngType::PredictionResistance
     );
-    esdm_drng_status(0).unwrap();
+    conn.drng_status(0).unwrap();
+
+    // a node without DRNG
+    let err = conn.drng_status(u32::MAX).unwrap_err();
+    assert!(err.to_string().contains("DRNG status"), "{err}");
 
     drop(conn);
 
+    // set up connections of their own
     assert!(esdm_is_fully_seeded().is_some());
     assert!(esdm_get_entropy_level().is_some());
 }
@@ -99,10 +119,10 @@ fn test_large_request() {
 
 #[test]
 fn test_status() {
-    let _conn = EsdmConnection::new();
+    let conn = EsdmConnection::new();
 
     for _ in 0..100 {
-        let status = esdm_status_str().unwrap();
+        let status = conn.status_text().unwrap();
         println!("{status}");
     }
 }
@@ -111,25 +131,26 @@ fn test_status() {
 #[test]
 #[cfg(feature = "privileged_tests")]
 fn test_privileged_interface() {
-    // also need unprivileged interface for random bytes
-    let _conn = EsdmConnection::new();
-    let _priv_conn = EsdmPrivConnection::new();
+    let conn = EsdmConnection::new();
+    let priv_conn = EsdmPrivConnection::new();
 
-    esdm_clear_pool().unwrap();
-    assert_eq!(esdm_get_entropy_count().unwrap(), 0);
-    esdm_add_to_entropy_count(64 * 8).unwrap();
-    esdm_crng_reseed().unwrap();
+    priv_conn.clear_pool().unwrap();
+    assert_eq!(conn.entropy_count().unwrap(), 0);
+    priv_conn.add_to_entropy_count(64 * 8).unwrap();
+    priv_conn.crng_reseed().unwrap();
 
     let mut rng = EsdmRng::new(EsdmRngType::FullySeeded);
 
     // don't do this in production: circular seeding
     let mut buf: [u8; 32] = [42; 32];
     rng.try_fill_bytes(&mut buf).unwrap();
-    esdm_clear_pool().unwrap();
-    esdm_add_entropy(&buf, u32::try_from(buf.len() * 8).unwrap()).unwrap();
-    assert!(esdm_get_entropy_count().unwrap() >= 32 * 8);
+    priv_conn.clear_pool().unwrap();
+    priv_conn
+        .add_entropy(&buf, u32::try_from(buf.len() * 8).unwrap())
+        .unwrap();
+    assert!(conn.entropy_count().unwrap() >= 32 * 8);
 
-    let result = esdm_selftest().unwrap();
+    let result = priv_conn.selftest().unwrap();
     println!("selftest: {result:?}");
     assert!(result.all_passed());
     assert_eq!(result.crypto_state, EsdmSelftestState::Passed);
@@ -155,19 +176,31 @@ fn test_notification_handles_and_timeout() {
 }
 
 #[test]
-fn test_add_entropy_rejects_overcrediting() {
+fn test_privileged_input_checks() {
     // checked before talking to the server, so no privileges are needed
-    let err = esdm_add_entropy(&[0u8; 4], 33).unwrap_err();
+    let priv_conn = EsdmPrivConnection::new();
+    let err = priv_conn.add_entropy(&[0u8; 4], 33).unwrap_err();
     assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
-    let err = esdm_add_entropy(&[], 1).unwrap_err();
+    let err = priv_conn.add_entropy(&[], 1).unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+    let err = priv_conn.set_es_rate("jent\0", 0).unwrap_err();
     assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
 }
 
 #[test]
-fn test_set_es_rate_rejects_nul() {
-    // checked before talking to the server, so no privileges are needed
-    let err = esdm_set_es_rate("jent\0", 0).unwrap_err();
-    assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+fn test_privileged_calls_need_root() {
+    // the connection itself can be set up without root
+    if is_root() {
+        return;
+    }
+    let priv_conn = EsdmPrivConnection::new();
+    let err = priv_conn.clear_pool().unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
+}
+
+fn is_root() -> bool {
+    // SAFETY: getuid() has no preconditions and cannot fail
+    unsafe { libc::getuid() == 0 }
 }
 
 #[test]
@@ -187,43 +220,29 @@ fn test_next_u32_and_odd_sizes() {
 #[test]
 fn test_nested_connections() {
     // the connection is reference counted, dropping an inner one must keep
-    // it alive
+    // the outer one working
     let outer = EsdmConnection::new();
     let inner = EsdmConnection::new();
     drop(inner);
-    assert!(esdm_status_json_str().is_ok());
-    drop(outer);
-}
-
-#[test]
-#[expect(deprecated)]
-fn test_deprecated_init_fini() {
-    // the deprecated free functions share the reference count with the
-    // connection guards
-    esdm_rng_init_checked();
-    let conn = EsdmConnection::new();
-    esdm_rng_fini();
-    assert!(esdm_status_json_str().is_ok());
-    drop(conn);
+    assert!(outer.status_json().is_ok());
 }
 
 #[test]
 fn test_other_status_reports() {
-    let _conn = EsdmConnection::new();
+    let conn = EsdmConnection::new();
 
     // may be empty if the server lacks the Jitter RNG entropy source
-    println!("{}", esdm_jent_status_str().unwrap());
+    println!("{}", conn.jent_status_text().unwrap());
 
-    let drng: serde_json::Value =
-        serde_json::from_str(&esdm_drng_status_json_str(0).unwrap()).unwrap();
+    let drng: serde_json::Value = serde_json::from_str(&conn.drng_status_json(0).unwrap()).unwrap();
     assert!(drng.is_object());
 }
 
 #[test]
 fn test_unprivileged_entropy_interface() {
-    let _conn = EsdmConnection::new();
+    let conn = EsdmConnection::new();
 
     // works without privileges, the data is mixed in but not credited
-    esdm_write_data(&[0x5a; 64]).unwrap();
-    let _ = esdm_get_entropy_count().unwrap();
+    conn.write_data(&[0x5a; 64]).unwrap();
+    let _ = conn.entropy_count().unwrap();
 }

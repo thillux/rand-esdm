@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use esdm_sys::esdm_aux;
 
-use crate::entropy::esdm_get_entropy_count;
+use crate::connection::EsdmConnection;
 use crate::rpc::rpc_error;
 
 /// number of live [`EsdmNotification`] handles
@@ -83,19 +83,40 @@ fn monotonic_deadline(dur: Duration) -> Result<esdm_aux::timespec, Error> {
 
 /// waits for the ESDM server to ask for entropy
 ///
+/// The ESDM signals a semaphore once its entropy level drops below
+/// [`EsdmConnection::write_wakeup_thresh`]. A process which can provide
+/// entropy, e.g. from a hardware RNG, waits for that and then adds entropy
+/// with [`crate::EsdmPrivConnection::add_entropy`]. Attaching to the semaphore
+/// requires root.
+///
 /// Several handles may exist at once. They share the process wide state of the
 /// aux client library and their waits take turns.
+///
+/// ```no_run
+/// use std::time::Duration;
+/// use rand_esdm::{EsdmNotification, EsdmPrivConnection};
+///
+/// # fn main() -> std::io::Result<()> {
+/// let priv_conn = EsdmPrivConnection::try_new()?;
+/// let mut notification = EsdmNotification::try_new()?;
+/// loop {
+///     match notification.wait_for_entropy_needed_timeout(Duration::from_secs(60)) {
+///         Ok(_) => {
+///             let entropy = [0u8; 32]; // read from your entropy source instead
+///             priv_conn.add_entropy(&entropy, 256)?;
+///         }
+///         Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {}
+///         Err(e) => return Err(e),
+///     }
+/// }
+/// # }
+/// ```
 #[derive(Debug)]
 pub struct EsdmNotification {
-    // keeps the handle from being built without `try_new`, which initializes
-    // the aux client library that `Drop` releases again
-    _private: (),
-}
-
-impl Default for EsdmNotification {
-    fn default() -> Self {
-        Self::new()
-    }
+    // fetches the entropy count after a wait. Being private, it also keeps
+    // the handle from being built without `try_new`, which initializes the
+    // aux client library that `Drop` releases again.
+    conn: EsdmConnection,
 }
 
 impl Drop for EsdmNotification {
@@ -112,9 +133,13 @@ impl Drop for EsdmNotification {
 }
 
 impl EsdmNotification {
+    /// attaches to the semaphore, see [`Self::try_new`]
+    ///
     /// # Panics
     ///
     /// if the aux client library cannot be initialized, see [`Self::try_new`]
+    // no `Default`: it would panic without root privileges
+    #[allow(clippy::new_without_default)]
     #[must_use]
     pub fn new() -> Self {
         Self::try_new().expect("unable to initialize ESDM aux library")
@@ -122,7 +147,10 @@ impl EsdmNotification {
 
     /// attaches to the semaphore and shared memory segment the ESDM server
     /// uses to signal that it needs entropy
+    ///
+    /// Fails with [`ErrorKind::PermissionDenied`] without root privileges.
     pub fn try_new() -> Result<Self, Error> {
+        let conn = EsdmConnection::try_new()?;
         let mut users = AUX_USERS.lock().unwrap_or_else(PoisonError::into_inner);
         if *users == 0 {
             // SAFETY: no handle exists and `AUX_USERS` is held, so no other
@@ -137,7 +165,7 @@ impl EsdmNotification {
         }
         *users += 1;
 
-        Ok(Self { _private: () })
+        Ok(Self { conn })
     }
 
     /// waits up to `dur` until the ESDM server needs entropy and returns the
@@ -145,9 +173,7 @@ impl EsdmNotification {
     ///
     /// Fails with [`ErrorKind::TimedOut`] if the server did not ask for
     /// entropy in time. Waits of several handles take turns, the time spent
-    /// waiting for the turn counts towards `dur` as well. Fetching the entropy
-    /// count requires an unprivileged connection, see
-    /// [`crate::EsdmConnection`].
+    /// waiting for the turn counts towards `dur` as well.
     pub fn wait_for_entropy_needed_timeout(&mut self, dur: Duration) -> Result<u32, Error> {
         let mut deadline = monotonic_deadline(dur)?;
 
@@ -174,7 +200,7 @@ impl EsdmNotification {
             }
         }
 
-        esdm_get_entropy_count()
+        self.conn.entropy_count()
     }
 }
 
