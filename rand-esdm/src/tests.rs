@@ -117,6 +117,14 @@ fn test_status_json() {
 
     let status = conn.status().unwrap();
     assert_ne!(status.entropy_sources.len(), 0);
+    // the tests expect a seeded server, see the README
+    assert!(conn.is_fully_seeded().unwrap());
+    conn.entropy_level().unwrap();
+    assert_eq!(
+        conn.security_strength().unwrap(),
+        status.security_strength_bits
+    );
+    assert_eq!(conn.server_version().unwrap(), status.library_version);
     assert_eq!(
         conn.drng_status_pr().unwrap().drng_type,
         EsdmDrngType::PredictionResistance

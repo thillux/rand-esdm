@@ -53,7 +53,8 @@ fn fini_priv() {
 /// unprivileged client connection to the ESDM, released when dropped
 ///
 /// The unprivileged interface of the ESDM is available as its methods:
-/// the status ([`Self::status`]), the entropy count ([`Self::entropy_count`])
+/// the status ([`Self::status`], [`Self::is_fully_seeded`],
+/// [`Self::entropy_level`], ...), the entropy count ([`Self::entropy_count`])
 /// and writing data to the auxiliary pool ([`Self::write_data`]). Random
 /// numbers come from [`crate::EsdmRng`], which holds a connection of its own.
 ///

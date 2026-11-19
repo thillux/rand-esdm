@@ -419,6 +419,7 @@ fn assert_fails<T: std::fmt::Debug>(
 /// every kind of call fails with one of `kinds` within `max`
 fn assert_all_fail(conn: &EsdmConnection, rng: &mut EsdmRng, kinds: &[ErrorKind], max: Duration) {
     assert_fails("status", kinds, max, || conn.status());
+    assert_fails("fully seeded", kinds, max, || conn.is_fully_seeded());
     assert_fails("status text", kinds, max, || conn.status_text());
     assert_fails("entropy count", kinds, max, || conn.entropy_count());
     assert_fails("write data", kinds, max, || conn.write_data(&[0x5a; 8]));
@@ -434,6 +435,8 @@ fn assert_all_fail(conn: &EsdmConnection, rng: &mut EsdmRng, kinds: &[ErrorKind]
 /// every kind of call works
 fn assert_all_work(conn: &EsdmConnection, rng: &mut EsdmRng) {
     assert!(conn.status().unwrap().fully_seeded);
+    assert!(conn.is_fully_seeded().unwrap());
+    assert!(conn.security_strength().unwrap() >= 256);
     conn.entropy_count().unwrap();
     conn.write_data(&[0x5a; 8]).unwrap();
     rng.try_fill_bytes(&mut [0u8; 32]).unwrap();

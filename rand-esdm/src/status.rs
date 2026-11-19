@@ -81,6 +81,49 @@ impl EsdmConnection {
         parse_status_json(&self.status_json()?)
     }
 
+    // The ESDM has no calls of their own for the values below: each accessor
+    // fetches and parses the whole status document.
+
+    /// whether the ESDM is fully seeded, i.e. serves
+    /// [`crate::EsdmRngType::FullySeeded`]
+    ///
+    /// Like the other status accessors it fetches the whole status, use
+    /// [`Self::status`] to read several values at once. Unlike
+    /// [`crate::esdm_is_fully_seeded`] it reports why it failed.
+    ///
+    /// ```
+    /// use rand_esdm::EsdmConnection;
+    ///
+    /// # fn main() -> std::io::Result<()> {
+    /// let conn = EsdmConnection::try_new()?;
+    /// if !conn.is_fully_seeded()? {
+    ///     println!("ESDM is still collecting entropy");
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn is_fully_seeded(&self) -> Result<bool, Error> {
+        Ok(self.status()?.fully_seeded)
+    }
+
+    /// entropy in bits currently available from all entropy sources together
+    ///
+    /// Unlike [`Self::entropy_count`], which covers the auxiliary pool only.
+    pub fn entropy_level(&self) -> Result<u32, Error> {
+        Ok(self.status()?.entropy_level_bits)
+    }
+
+    /// security strength of the DRNGs in bits, the entropy the ESDM needs to
+    /// be fully seeded
+    pub fn security_strength(&self) -> Result<u32, Error> {
+        Ok(self.status()?.security_strength_bits)
+    }
+
+    /// version of the ESDM server, e.g. `"1.2.4"`
+    pub fn server_version(&self) -> Result<String, Error> {
+        Ok(self.status()?.library_version)
+    }
+
     /// status of the ESDM as JSON document
     ///
     /// [`Self::status`] parses it into [`EsdmStatus`].
@@ -156,29 +199,23 @@ impl EsdmConnection {
     }
 }
 
-/// sets up a connection of its own, fetches the status and releases the
-/// connection again
-fn with_status<T>(extract: impl FnOnce(&EsdmStatus) -> T) -> Option<T> {
-    let conn = EsdmConnection::try_new().ok()?;
-    conn.status().ok().map(|status| extract(&status))
-}
-
 /// whether the ESDM is fully seeded, sets up a connection of its own
 ///
 /// Returns `None` on any error: if no connection can be set up or the status
-/// cannot be fetched or parsed. Use [`EsdmConnection::status`] to learn the
-/// reason.
+/// cannot be fetched or parsed. Use [`EsdmConnection::is_fully_seeded`] to
+/// learn the reason.
 #[must_use]
 pub fn esdm_is_fully_seeded() -> Option<bool> {
-    with_status(|status| status.fully_seeded)
+    EsdmConnection::try_new().ok()?.is_fully_seeded().ok()
 }
 
 /// entropy level of the ESDM in bits, sets up a connection of its own
 ///
-/// Returns `None` on any error, see [`esdm_is_fully_seeded`].
+/// Returns `None` on any error, [`EsdmConnection::entropy_level`] reports the
+/// reason.
 #[must_use]
 pub fn esdm_get_entropy_level() -> Option<u32> {
-    with_status(|status| status.entropy_level_bits)
+    EsdmConnection::try_new().ok()?.entropy_level().ok()
 }
 
 #[cfg(test)]

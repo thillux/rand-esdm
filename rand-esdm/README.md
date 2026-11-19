@@ -87,7 +87,7 @@ be made without one:
 | Type | Offers | Needs |
 | --- | --- | --- |
 | `EsdmRng` | random numbers | nothing, it holds a connection of its own |
-| `EsdmConnection` | `status`, `status_json`, `status_text`, `drng_status`, `entropy_count`, `write_wakeup_thresh`, `write_data`, ... | nothing |
+| `EsdmConnection` | `status`, `status_json`, `status_text`, `drng_status`, `is_fully_seeded`, `entropy_level`, `entropy_count`, `write_wakeup_thresh`, `write_data`, ... | nothing |
 | `EsdmPrivConnection` | `add_entropy`, `add_to_entropy_count`, `clear_pool`, `crng_reseed`, `selftest`, `set_es_rate` | root, the calls fail with `ErrorKind::PermissionDenied` otherwise |
 | `EsdmNotification` | `wait_for_entropy_needed_timeout` | root |
 
@@ -145,7 +145,8 @@ Complete programs in [`examples`](examples), run them with
   `esdm_is_fully_seeded`, `esdm_get_entropy_level` and
   `esdm_set_max_online_nodes` remain free functions.
 - New: typed and JSON status reports (`conn.status()`, `conn.drng_status()`,
-  ...), `priv_conn.selftest()`, `priv_conn.set_es_rate()`, and
+  ...) and accessors for single values (`conn.is_fully_seeded()`,
+  `conn.entropy_level()`, ...), `priv_conn.selftest()`, `priv_conn.set_es_rate()`, and
   `TryCryptoRng` for `EsdmRng`.
 - `EsdmNotification::wait_for_entropy_needed_timeout` returns `()` instead
   of the entropy count, which `conn.entropy_count()` fetches, so its timeout
