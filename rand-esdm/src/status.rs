@@ -88,8 +88,7 @@ impl EsdmConnection {
     /// [`crate::EsdmRngType::FullySeeded`]
     ///
     /// Like the other status accessors it fetches the whole status, use
-    /// [`Self::status`] to read several values at once. Unlike
-    /// [`crate::esdm_is_fully_seeded`] it reports why it failed.
+    /// [`Self::status`] to read several values at once.
     ///
     /// ```
     /// use rand_esdm::EsdmConnection;
@@ -197,25 +196,6 @@ impl EsdmConnection {
             "ESDM error jent status",
         )
     }
-}
-
-/// whether the ESDM is fully seeded, sets up a connection of its own
-///
-/// Returns `None` on any error: if no connection can be set up or the status
-/// cannot be fetched or parsed. Use [`EsdmConnection::is_fully_seeded`] to
-/// learn the reason.
-#[must_use]
-pub fn esdm_is_fully_seeded() -> Option<bool> {
-    EsdmConnection::try_new().ok()?.is_fully_seeded().ok()
-}
-
-/// entropy level of the ESDM in bits, sets up a connection of its own
-///
-/// Returns `None` on any error, [`EsdmConnection::entropy_level`] reports the
-/// reason.
-#[must_use]
-pub fn esdm_get_entropy_level() -> Option<u32> {
-    EsdmConnection::try_new().ok()?.entropy_level().ok()
 }
 
 #[cfg(test)]

@@ -27,7 +27,7 @@ use std::time::{Duration, Instant};
 use rand_core::TryRng;
 use rand_esdm::{
     EsdmConnection, EsdmDrngType, EsdmEntropySourceStatus, EsdmNotification, EsdmPrivConnection,
-    EsdmRng, EsdmRngType, EsdmSelftestState, EsdmStatus, esdm_is_fully_seeded,
+    EsdmRng, EsdmRngType, EsdmSelftestState, EsdmStatus,
 };
 use serde_json::{Value, json};
 
@@ -429,7 +429,6 @@ fn assert_all_fail(conn: &EsdmConnection, rng: &mut EsdmRng, kinds: &[ErrorKind]
     assert_fails("privileged call", kinds, max, || {
         EsdmPrivConnection::try_new()?.crng_reseed()
     });
-    assert_eq!(esdm_is_fully_seeded(), None);
 }
 
 /// every kind of call works
@@ -441,7 +440,6 @@ fn assert_all_work(conn: &EsdmConnection, rng: &mut EsdmRng) {
     conn.write_data(&[0x5a; 8]).unwrap();
     rng.try_fill_bytes(&mut [0u8; 32]).unwrap();
     EsdmPrivConnection::new().crng_reseed().unwrap();
-    assert_eq!(esdm_is_fully_seeded(), Some(true));
 }
 
 fn check_no_server(_: &mut Server) {
@@ -702,7 +700,10 @@ impl Server {
             if let Some(Ok(Some(status))) = self.child.as_mut().map(Child::try_wait) {
                 panic!("esdm-server exited with {status}");
             }
-            esdm_is_fully_seeded().filter(|&seeded| seeded)
+            EsdmConnection::try_new()
+                .and_then(|conn| conn.is_fully_seeded())
+                .ok()
+                .filter(|&seeded| seeded)
         });
     }
 }

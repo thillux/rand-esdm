@@ -141,9 +141,10 @@ Complete programs in [`examples`](examples), run them with
   | `esdm_add_to_entropy_count()` | `priv_conn.add_to_entropy_count()` |
   | `esdm_clear_pool()` | `priv_conn.clear_pool()` |
   | `esdm_crng_reseed()`, `esdm_reseed_crng()` | `priv_conn.crng_reseed()` |
+  | `esdm_is_fully_seeded()` | `conn.is_fully_seeded()` |
+  | `esdm_get_entropy_level()` | `conn.entropy_level()` |
 
-  `esdm_is_fully_seeded`, `esdm_get_entropy_level` and
-  `esdm_set_max_online_nodes` remain free functions.
+  Only `esdm_set_max_online_nodes` remains a free function.
 - New: typed and JSON status reports (`conn.status()`, `conn.drng_status()`,
   ...) and accessors for single values (`conn.is_fully_seeded()`,
   `conn.entropy_level()`, ...), `priv_conn.selftest()`, `priv_conn.set_es_rate()`, and

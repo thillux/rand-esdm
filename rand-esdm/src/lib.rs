@@ -105,8 +105,7 @@
 //! | hanging, i.e. not answering | [`std::io::ErrorKind::TimedOut`], after a few seconds of silence |
 //! | started (again) | nothing: existing connections and RNGs work again without being created anew |
 //!
-//! [`esdm_is_fully_seeded`] and [`esdm_get_entropy_level`] return `None` in
-//! these cases. [`EsdmNotification::wait_for_entropy_needed_timeout`] only
+//! [`EsdmNotification::wait_for_entropy_needed_timeout`] only
 //! watches a semaphore: it times out if no server ever asked for entropy,
 //! but a request raised before the server stopped or hung is still
 //! delivered. The calls which follow report the state of the server then.
@@ -140,7 +139,6 @@ pub use connection::{EsdmConnection, EsdmPrivConnection, esdm_set_max_online_nod
 pub use notification::EsdmNotification;
 pub use rng::{EsdmRng, EsdmRngType};
 pub use selftest::{EsdmSelftestResult, EsdmSelftestState};
-pub use status::{esdm_get_entropy_level, esdm_is_fully_seeded};
 pub use status_json::{
     EsdmDrngStatus, EsdmDrngType, EsdmEntropySourceStatus, EsdmPeriodicSelftestStatus,
     EsdmReseedWorkerStatus, EsdmStatus,

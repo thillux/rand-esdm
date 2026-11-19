@@ -11,10 +11,7 @@ use std::{
 };
 
 use clap::{Args, Parser, Subcommand};
-use rand_esdm::{
-    EsdmConnection, EsdmNotification, EsdmPrivConnection, EsdmRng, EsdmRngType,
-    esdm_get_entropy_level, esdm_is_fully_seeded,
-};
+use rand_esdm::{EsdmConnection, EsdmNotification, EsdmPrivConnection, EsdmRng, EsdmRngType};
 use zeroize::Zeroizing;
 
 /// largest input `write-to-aux-pool` accepts, more cannot add entropy as the
@@ -101,17 +98,20 @@ struct ToolArgs {
     command: ToolCommand,
 }
 
+/// sets up an unprivileged connection, reporting a failure on stderr
+fn connect() -> Option<EsdmConnection> {
+    EsdmConnection::try_new()
+        .inspect_err(|e| eprintln!("Cannot init ESDM connection: {e}. Exiting!"))
+        .ok()
+}
+
 /// prints the status string returned by `fetch` over an unprivileged connection
 fn print_status(
     fetch: impl FnOnce(&EsdmConnection) -> std::io::Result<String>,
     name: &str,
 ) -> ExitCode {
-    let conn = match EsdmConnection::try_new() {
-        Ok(conn) => conn,
-        Err(e) => {
-            eprintln!("Cannot init ESDM connection: {e}. Exiting!");
-            return ExitCode::FAILURE;
-        }
+    let Some(conn) = connect() else {
+        return ExitCode::FAILURE;
     };
 
     match fetch(&conn) {
@@ -184,10 +184,14 @@ fn handle_jent_status() -> ExitCode {
 }
 
 fn wait_until_seeded(arg: &WaitUntilSeededArg) -> ExitCode {
+    // works for a server started later as well, the library connects lazily
+    let Some(conn) = connect() else {
+        return ExitCode::FAILURE;
+    };
     let mut try_counter = arg.tries;
 
     while try_counter > 0 {
-        if esdm_is_fully_seeded() == Some(true) {
+        if conn.is_fully_seeded().unwrap_or(false) {
             println!("ESDM is fully seeded!");
             return ExitCode::SUCCESS;
         }
@@ -253,21 +257,24 @@ fn get_random(arg: &GetRandomArg) -> ExitCode {
 }
 
 fn get_entropy_level() -> ExitCode {
-    if let Some(entropy_level) = esdm_get_entropy_level() {
-        println!("Entropy level: {entropy_level}");
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
+    let Some(conn) = connect() else {
+        return ExitCode::FAILURE;
+    };
+    match conn.entropy_level() {
+        Ok(level) => {
+            println!("Entropy level: {level}");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("Cannot get entropy level: {e}");
+            ExitCode::FAILURE
+        }
     }
 }
 
 fn get_entropy_count() -> ExitCode {
-    let conn = match EsdmConnection::try_new() {
-        Ok(conn) => conn,
-        Err(e) => {
-            eprintln!("Cannot init ESDM connection: {e}. Exiting!");
-            return ExitCode::FAILURE;
-        }
+    let Some(conn) = connect() else {
+        return ExitCode::FAILURE;
     };
     match conn.entropy_count() {
         Ok(cnt) => {
@@ -338,13 +345,23 @@ fn write_to_aux_pool(arg: &WriteToAuxPoolArg) -> ExitCode {
 }
 
 fn is_fully_seeded() -> ExitCode {
-    if esdm_is_fully_seeded() == Some(true) {
-        println!("ESDM is fully seeded!");
-        return ExitCode::SUCCESS;
+    let Some(conn) = connect() else {
+        return ExitCode::FAILURE;
+    };
+    match conn.is_fully_seeded() {
+        Ok(true) => {
+            println!("ESDM is fully seeded!");
+            ExitCode::SUCCESS
+        }
+        Ok(false) => {
+            println!("ESDM is not fully seeded!");
+            ExitCode::FAILURE
+        }
+        Err(e) => {
+            eprintln!("Cannot get ESDM status: {e}");
+            ExitCode::FAILURE
+        }
     }
-
-    println!("ESDM is not fully seeded!");
-    ExitCode::FAILURE
 }
 
 fn crng_reseed() -> ExitCode {

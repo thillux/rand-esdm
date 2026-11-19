@@ -134,12 +134,6 @@ fn test_status_json() {
     // a node without DRNG
     let err = conn.drng_status(u32::MAX).unwrap_err();
     assert!(err.to_string().contains("DRNG status"), "{err}");
-
-    drop(conn);
-
-    // set up connections of their own
-    assert!(esdm_is_fully_seeded().is_some());
-    assert!(esdm_get_entropy_level().is_some());
 }
 
 #[test]
